@@ -17,6 +17,23 @@ publicRouter.get('/health', (req, res) => {
   res.json({ ok: true, grants });
 });
 
+// Public directory: only published OPEN grants; deadline only when trustworthy
+// (api-sourced or operator-confirmed) — same visibility rules as the chat.
+publicRouter.get('/api/grants', (req, res) => {
+  const rows = db.prepare(`
+    SELECT g.bdns_ref, g.title, g.granting_body, g.granting_level, g.category,
+           g.ai_summary, g.amount_max, g.budget_total, g.source_url, g.application_url, g.is_rolling,
+           CASE WHEN g.deadline_source = 'api' OR g.deadline_confirmed = 1
+                THEN g.deadline_date ELSE NULL END AS deadline,
+           e.entity_types, e.funds_what, e.territory_scope
+    FROM grant_row g LEFT JOIN grant_eligibility e ON e.grant_id = g.id
+    WHERE g.published = 1 AND g.status = 'OPEN'
+    ORDER BY g.deadline_date IS NULL, g.deadline_date
+    LIMIT 200`).all();
+  const last = db.prepare('SELECT MAX(created_at) m FROM grant_row').get().m;
+  res.json({ grants: rows, stats: { open: rows.length, updated: last ? last.slice(0, 10) : null } });
+});
+
 function chatContext() {
   // Only published grants; deadline shown only when api-sourced or operator-confirmed.
   const rows = db.prepare(`
