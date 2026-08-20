@@ -1,0 +1,202 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Consola — Plazo Abierto</title>
+<link rel="stylesheet" href="/styles.css">
+<style>
+  .cols { display: grid; grid-template-columns: 1fr; gap: 1rem; }
+  details.card { padding: .8rem 1.2rem; }
+  summary { cursor: pointer; font-weight: 600; }
+  .row-actions { display: flex; gap: .4rem; flex-wrap: wrap; align-items: center; margin: .4rem 0; }
+  .row-actions input, .row-actions select { width: auto; margin: 0; }
+  pre.draft { background: var(--bg); padding: .6rem; border-radius: 8px; white-space: pre-wrap; font-size: .85rem; }
+</style>
+</head>
+<body>
+<header class="site">
+  <div class="wrap">
+    <a class="logo" href="/">Plazo<span>Abierto</span> · consola</a>
+    <div>
+      <button class="btn small" id="pollnow">Sondear BDNS ahora</button>
+      <button class="btn ghost small" id="out">Salir</button>
+    </div>
+  </div>
+</header>
+<main class="wrap cols" style="padding-top:1rem">
+
+  <div class="card" id="alerts-card" hidden>
+    <h3 style="color:var(--warn)">⚠ Alertas de ingesta</h3>
+    <div id="alerts"></div>
+  </div>
+
+  <div class="card">
+    <h3>Métricas</h3>
+    <div id="metrics" class="muted">cargando…</div>
+  </div>
+
+  <div class="card">
+    <h3>Convocatorias <label style="font-weight:400"><input type="checkbox" id="pendingonly" checked style="width:auto"> solo pendientes</label></h3>
+    <div id="grants"></div>
+  </div>
+
+  <div class="card">
+    <h3>Peticiones (señal de demanda)</h3>
+    <div id="requests"></div>
+  </div>
+
+  <div class="card">
+    <h3>Invitaciones</h3>
+    <form id="invform" class="row-actions">
+      <input name="email" type="email" placeholder="correo" required>
+      <input name="name" placeholder="nombre">
+      <select name="municipality_id" id="munisel" required></select>
+      <button class="btn small" type="submit">Crear invitación</button>
+    </form>
+    <p id="invlink"></p>
+    <div id="invites"></div>
+  </div>
+
+</main>
+<script>
+const $ = (id) => document.getElementById(id);
+async function j(url, opts) { const r = await fetch(url, opts); if (r.status === 401) location.href = '/entrar'; return r.json(); }
+const post = (url, body) => j(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body || {}) });
+const fmt = (n) => n == null ? '—' : Number(n).toLocaleString('es-ES') + ' €';
+
+async function loadAlerts() {
+  const a = await j('/api/op/alerts');
+  $('alerts-card').hidden = !a.length;
+  $('alerts').innerHTML = a.map(x =>
+    `<p>[${x.created_at}] <strong>${x.source}</strong>: ${x.message}
+     <button class="btn small" onclick="post('/api/op/alerts/${x.id}/resolve').then(loadAlerts)">resuelto</button></p>`).join('');
+}
+
+async function loadMetrics() {
+  const m = await j('/api/op/metrics');
+  const reqs = m.requests.map(r => `${r.k}/${r.status}: ${r.c}`).join(' · ') || '—';
+  const base = {};
+  for (const b of m.baseline) { (base[b.name] ??= []).push(`${b.yr}: ${b.c} (${fmt(b.eur)})`); }
+  $('metrics').innerHTML =
+    `<p>Avisadas: <strong>${m.surfaced}</strong> · Interesados: <strong>${m.interested}</strong> ·
+     Solicitadas: <strong>${m.applied}</strong> · Concedidas: <strong>${m.awarded}</strong> (${fmt(m.euros_awarded)})</p>
+     <p>Peticiones: ${reqs}</p>
+     <details><summary>Línea base (concesiones históricas por entidad)</summary>
+     ${Object.entries(base).map(([n, ys]) => `<p><strong>${n}</strong>: ${ys.join(' · ')}</p>`).join('')}</details>`;
+}
+
+async function loadGrants() {
+  const pending = $('pendingonly').checked;
+  const gs = await j('/api/op/grants' + (pending ? '?q=pending' : ''));
+  $('grants').innerHTML = gs.length ? '' : '<p class="muted">Nada pendiente.</p>';
+  for (const g of gs) {
+    const d = document.createElement('details');
+    d.className = 'card';
+    const plazoTag = g.deadline_date
+      ? `<span class="tag ${g.deadline_source === 'computed' && !g.deadline_confirmed ? 'warn' : ''}">
+         plazo ${g.deadline_date} (${g.deadline_source}${g.deadline_confirmed ? ' ✔' : ' — SIN CONFIRMAR'})</span>`
+      : '<span class="tag warn">sin plazo</span>';
+    d.innerHTML = `<summary>${g.published ? '🟢' : '⚪'} [${g.status}] ${g.title.slice(0, 110)}</summary>
+      <p class="muted">${g.granting_body || ''} · BDNS ${g.bdns_ref} ·
+        <a href="${g.source_url}" target="_blank" rel="noopener">ficha</a></p>
+      <p>${g.ai_summary || '<em>sin resumen IA</em>'}</p>
+      <p>${plazoTag} <span class="tag">${g.category || 's/cat'}</span>
+        <span class="tag">benef: ${g.entity_types || '[]'}</span>
+        <span class="tag">ámbito: ${g.territory_scope || '¿?'}</span>
+        <span class="tag">presupuesto: ${fmt(g.budget_total)}</span></p>
+      <div class="row-actions">
+        <input type="date" id="dl-${g.id}" value="${g.deadline_date || ''}">
+        <button class="btn small" onclick="setDeadline('${g.id}')">fijar plazo (manual)</button>
+        ${g.deadline_source === 'computed' && !g.deadline_confirmed
+          ? `<button class="btn small" onclick="post('/api/op/grants/${g.id}/deadline',{action:'confirm'}).then(loadGrants)">confirmar calculado</button>` : ''}
+        <button class="btn small ${g.published ? 'ghost' : ''}" onclick="publish('${g.id}', ${g.published ? 0 : 1})">
+          ${g.published ? 'despublicar' : 'publicar'}</button>
+        <button class="btn ghost small" onclick="candidates('${g.id}')">candidatos</button>
+      </div>
+      <div id="cand-${g.id}"></div>`;
+    $('grants').appendChild(d);
+  }
+}
+
+async function setDeadline(id) {
+  const v = $('dl-' + id).value;
+  if (!v) return alert('elige fecha');
+  const r = await post(`/api/op/grants/${id}/deadline`, { deadline_date: v });
+  if (r.error) alert(r.error); else loadGrants();
+}
+async function publish(id, on) {
+  const r = await post(`/api/op/grants/${id}/publish`, { published: !!on });
+  if (r.error) alert(r.error); else loadGrants();
+}
+async function candidates(id) {
+  const c = await j(`/api/op/grants/${id}/candidates`);
+  $('cand-' + id).innerHTML = c.length
+    ? '<table>' + c.map(e => `<tr><td>${e.name}</td><td>${e.type}</td><td>${e.municipality_name}</td>
+        <td><button class="btn small" onclick="notify('${id}','${e.id}','whatsapp')">borrador WhatsApp</button>
+            <button class="btn small ghost" onclick="notify('${id}','${e.id}','email')">borrador email</button></td></tr>`).join('') + '</table>'
+    : '<p class="muted">Sin candidatos según elegibilidad.</p>';
+}
+async function notify(gid, eid, channel) {
+  const r = await post(`/api/op/grants/${gid}/notify`, { entity_id: eid, channel });
+  if (r.error) return alert(r.error);
+  $('cand-' + gid).insertAdjacentHTML('beforeend', channel === 'whatsapp'
+    ? `<pre class="draft">${r.whatsapp_draft}</pre>`
+    : `<pre class="draft">Asunto: ${r.email_subject}\n\n${r.email_body}</pre>`);
+  loadMetrics();
+}
+
+async function loadRequests() {
+  const rs = await j('/api/op/requests');
+  $('requests').innerHTML = rs.length
+    ? '<table>' + rs.map(r => `<tr>
+        <td class="muted">${r.received_at.slice(0, 16)}</td>
+        <td><strong>${r.municipality_name}</strong> ${r.entity_name ? '· ' + r.entity_name : ''}<br>${r.raw_text}
+          <br><span class="tag">${r.consent_upstream ? 'consiente agregado' : 'SIN consentimiento'}</span></td>
+        <td class="row-actions" style="min-width:220px">
+          <input placeholder="categoría" value="${r.category || ''}" id="cat-${r.id}" style="width:110px">
+          <select id="st-${r.id}">${['open', 'matched', 'applied', 'funded', 'no_fit']
+            .map(s => `<option ${s === r.status ? 'selected' : ''}>${s}</option>`).join('')}</select>
+          <button class="btn small" onclick="catReq('${r.id}')">guardar</button>
+        </td></tr>`).join('') + '</table>'
+    : '<p class="muted">Sin peticiones.</p>';
+}
+async function catReq(id) {
+  await post(`/api/op/requests/${id}/categorize`,
+    { category: $('cat-' + id).value || null, status: $('st-' + id).value });
+  loadRequests(); loadMetrics();
+}
+
+async function loadInvites() {
+  const munis = await j('/api/op/municipalities');
+  $('munisel').innerHTML = munis.map(m => `<option value="${m.id}">${m.name}</option>`).join('');
+  const inv = await j('/api/op/invites');
+  $('invites').innerHTML = inv.length
+    ? '<table>' + inv.map(i => `<tr><td>${i.email}</td><td>${i.municipality || ''}</td>
+       <td>${i.used_at ? '<span class="ok">usada</span>' : 'caduca ' + i.expires_at.slice(0, 10)}</td></tr>`).join('') + '</table>'
+    : '';
+}
+$('invform').addEventListener('submit', async (ev) => {
+  ev.preventDefault();
+  const fd = new FormData(ev.target);
+  const r = await post('/api/op/invites', {
+    email: fd.get('email'), name: fd.get('name'), municipality_id: fd.get('municipality_id') });
+  $('invlink').innerHTML = r.link
+    ? `Enlace: <code>${r.link.startsWith('http') ? r.link : location.origin + r.link}</code>`
+    : (r.error || '');
+  loadInvites();
+});
+
+$('pollnow').addEventListener('click', async () => {
+  $('pollnow').disabled = true; $('pollnow').textContent = 'sondeando…';
+  const r = await post('/api/op/poll');
+  $('pollnow').disabled = false; $('pollnow').textContent = 'Sondear BDNS ahora';
+  alert(r.error || `${r.new} convocatorias nuevas`);
+  loadGrants(); loadAlerts();
+});
+$('pendingonly').addEventListener('change', loadGrants);
+$('out').addEventListener('click', async () => { await fetch('/api/logout', { method: 'POST' }); location.href = '/'; });
+
+loadAlerts(); loadMetrics(); loadGrants(); loadRequests(); loadInvites();
+</script>
+</body>
+</html>

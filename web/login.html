@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Entrar — Plazo Abierto</title>
+<link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+<header class="site"><div class="wrap"><a class="logo" href="/">Plazo<span>Abierto</span></a></div></header>
+<main class="wrap" style="max-width:420px">
+  <div class="card" style="margin-top:3rem">
+    <h2>Entrar</h2>
+    <form id="f">
+      <label>Correo</label>
+      <input name="email" type="email" required autocomplete="username">
+      <label>Contraseña</label>
+      <input name="password" type="password" required autocomplete="current-password">
+      <button class="btn" type="submit" style="width:100%">Entrar</button>
+      <p id="msg" class="error"></p>
+    </form>
+    <p class="muted" style="font-size:.85rem">El acceso es por invitación. ¿No tienes cuenta?
+    Escríbenos a <a href="mailto:hola@plazoabierto.es">hola@plazoabierto.es</a>.</p>
+  </div>
+</main>
+<script>
+document.getElementById('f').addEventListener('submit', async (ev) => {
+  ev.preventDefault();
+  const fd = new FormData(ev.target);
+  const r = await fetch('/api/login', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email: fd.get('email'), password: fd.get('password') }),
+  });
+  const j = await r.json();
+  if (j.ok) location.href = '/panel';
+  else document.getElementById('msg').textContent = j.error || 'Error';
+});
+</script>
+</body>
+</html>

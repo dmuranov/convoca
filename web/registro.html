@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Crear cuenta — Plazo Abierto</title>
+<link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+<header class="site"><div class="wrap"><a class="logo" href="/">Plazo<span>Abierto</span></a></div></header>
+<main class="wrap" style="max-width:460px">
+  <div class="card" style="margin-top:3rem">
+    <h2>Crear tu cuenta</h2>
+    <p id="who" class="muted"></p>
+    <form id="f" hidden>
+      <label>Contraseña (mínimo 8 caracteres)</label>
+      <input name="password" type="password" minlength="8" required autocomplete="new-password">
+      <label>Repite la contraseña</label>
+      <input name="password2" type="password" minlength="8" required autocomplete="new-password">
+      <button class="btn" type="submit" style="width:100%">Crear cuenta y entrar</button>
+      <p id="msg" class="error"></p>
+    </form>
+    <p id="invalid" class="error" hidden>Esta invitación no es válida o ha caducado.
+    Pide una nueva a <a href="mailto:hola@plazoabierto.es">hola@plazoabierto.es</a>.</p>
+  </div>
+</main>
+<script>
+const token = new URLSearchParams(location.search).get('token');
+(async () => {
+  const r = await fetch('/api/invite/' + encodeURIComponent(token || ''));
+  if (!r.ok) { document.getElementById('invalid').hidden = false; return; }
+  const j = await r.json();
+  document.getElementById('who').textContent =
+    `Invitación para ${j.name || j.email}` + (j.municipality ? ` · ${j.municipality}` : '');
+  document.getElementById('f').hidden = false;
+})();
+document.getElementById('f').addEventListener('submit', async (ev) => {
+  ev.preventDefault();
+  const fd = new FormData(ev.target);
+  if (fd.get('password') !== fd.get('password2')) {
+    document.getElementById('msg').textContent = 'Las contraseñas no coinciden'; return;
+  }
+  const r = await fetch('/api/register', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ token, password: fd.get('password') }),
+  });
+  const j = await r.json();
+  if (j.ok) location.href = '/panel';
+  else document.getElementById('msg').textContent = j.error || 'Error';
+});
+</script>
+</body>
+</html>

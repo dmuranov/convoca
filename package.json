@@ -1,0 +1,23 @@
+{
+  "name": "convoca",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Convoca — rural municipal funding take-up. BDNS ingestion, matching, operator console.",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "seed": "node scripts/seed.js",
+    "poll": "node src/ingest/poll.js",
+    "test": "node --test"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.60.0",
+    "bcryptjs": "^2.4.3",
+    "better-sqlite3": "^12.11.1",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "node-cron": "^3.0.3",
+    "pdf-parse": "^1.1.1"
+  }
+}

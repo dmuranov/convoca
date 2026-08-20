@@ -1,0 +1,7 @@
+# Append this block to /etc/caddy/Caddyfile on the VM.
+# Do NOT touch the existing TestPilot and mocount blocks — Caddy serves all three.
+# Reload after edit: sudo systemctl reload caddy
+plazoabierto.es, www.plazoabierto.es {
+    reverse_proxy localhost:3003
+    encode gzip
+}

@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Plazo Abierto — que tu pueblo no pierda ni una subvención</title>
+<meta name="description" content="Avisamos a ayuntamientos pequeños, juntas vecinales y asociaciones de las subvenciones que pueden pedir, antes de que se cierre el plazo.">
+<link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+<header class="site">
+  <div class="wrap">
+    <a class="logo" href="/">Plazo<span>Abierto</span></a>
+    <nav><a class="btn ghost" href="/entrar">Entrar</a></nav>
+  </div>
+</header>
+
+<main class="wrap">
+  <section style="padding:3rem 0 1rem">
+    <h1>Que tu pueblo no pierda ni una subvención</h1>
+    <p class="muted" style="font-size:1.15rem;max-width:640px">
+      Cada año quedan ayudas sin pedir porque nadie en el pueblo se enteró a tiempo.
+      Vigilamos todas las convocatorias públicas y avisamos a quien puede pedirlas:
+      ayuntamientos pequeños, juntas vecinales, asociaciones, clubes y AMPAs.
+    </p>
+  </section>
+
+  <section class="grid2">
+    <div class="card">
+      <h3>1 · Vigilamos</h3>
+      <p>Leemos a diario la Base de Datos Nacional de Subvenciones y los boletines.
+      Ninguna convocatoria se nos escapa: estatales, autonómicas y de diputación.</p>
+    </div>
+    <div class="card">
+      <h3>2 · Traducimos</h3>
+      <p>Convertimos las bases en tres líneas claras: qué paga, cuánto y hasta cuándo.
+      Sin jerga administrativa.</p>
+    </div>
+    <div class="card">
+      <h3>3 · Avisamos</h3>
+      <p>El aviso llega por WhatsApp o correo a la persona que puede decidir.
+      Responder cuesta un toque: <em>me interesa</em> o <em>no</em>.</p>
+    </div>
+    <div class="card">
+      <h3>4 · Acompañamos</h3>
+      <p>Si interesa, ayudamos a que la solicitud llegue a tiempo y bien presentada.
+      Y si lo que necesitas no tiene ayuda hoy, lo apuntamos para reclamarla mañana.</p>
+    </div>
+  </section>
+
+  <section class="card" id="asistente">
+    <h2>Pregunta al asistente</h2>
+    <p class="muted">¿Tienes una asociación, un club o una junta vecinal y no sabes si hay ayudas
+    para lo tuyo? Pregunta con tus palabras — por ejemplo:
+    <em>«necesitamos arreglar el tejado del centro cultural»</em>.</p>
+    <div id="chat">
+      <div id="chat-log"></div>
+      <form id="chat-form">
+        <input id="chat-input" maxlength="1000" placeholder="Escribe tu pregunta…" autocomplete="off">
+        <button class="btn" type="submit">Enviar</button>
+      </form>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>¿Eres alcalde o secretario?</h2>
+    <p>Trabajamos por invitación, pueblo a pueblo. Si quieres que vigilemos las convocatorias
+    de tu municipio, escríbenos a
+    <a href="mailto:hola@plazoabierto.es">hola@plazoabierto.es</a>
+    y te lo contamos sin compromiso.</p>
+  </section>
+</main>
+
+<footer class="wrap muted" style="padding:2rem 1.2rem;font-size:.85rem">
+  © <span id="yr"></span> Plazo Abierto · Los datos de convocatorias proceden de la
+  <a href="https://www.infosubvenciones.es">Base de Datos Nacional de Subvenciones</a>.
+</footer>
+
+<script>
+document.getElementById('yr').textContent = new Date().getFullYear();
+const log = document.getElementById('chat-log');
+const history = [];
+function add(role, text) {
+  const d = document.createElement('div');
+  d.className = 'msg ' + (role === 'user' ? 'user' : 'bot');
+  d.textContent = text;
+  log.appendChild(d);
+  log.scrollTop = log.scrollHeight;
+}
+add('bot', 'Hola 👋 Soy el asistente de Plazo Abierto. Cuéntame qué necesita tu pueblo o tu asociación y te digo si hay ayudas abiertas.');
+document.getElementById('chat-form').addEventListener('submit', async (ev) => {
+  ev.preventDefault();
+  const input = document.getElementById('chat-input');
+  const message = input.value.trim();
+  if (!message) return;
+  input.value = '';
+  add('user', message);
+  history.push({ role: 'user', content: message });
+  add('bot', '…');
+  const thinking = log.lastChild;
+  try {
+    const r = await fetch('/api/chat', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message, history: history.slice(0, -1) }),
+    });
+    const j = await r.json();
+    thinking.textContent = j.reply || j.error || 'No he podido responder.';
+    if (j.reply) history.push({ role: 'assistant', content: j.reply });
+  } catch {
+    thinking.textContent = 'No hay conexión ahora mismo. Inténtalo más tarde.';
+  }
+});
+</script>
+</body>
+</html>

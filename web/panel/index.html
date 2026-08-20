@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tu panel — Plazo Abierto</title>
+<link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+<header class="site">
+  <div class="wrap">
+    <a class="logo" href="/">Plazo<span>Abierto</span></a>
+    <div><span id="who" class="muted" style="margin-right:1rem"></span>
+    <button class="btn ghost small" id="out">Salir</button></div>
+  </div>
+</header>
+<main class="wrap">
+  <h2 style="margin-top:1.5rem">Ayudas para tu pueblo</h2>
+  <div id="grants"></div>
+
+  <div class="card">
+    <h3>¿Qué necesita tu pueblo?</h3>
+    <p class="muted">Cuéntalo con tus palabras, como lo dirías en el bar:
+    <em>«necesito arreglar el tejado del centro cultural»</em>.
+    Si hoy no hay ayuda para eso, quedará apuntado para reclamarla.</p>
+    <form id="req">
+      <textarea name="text" rows="3" maxlength="4000" required placeholder="Necesitamos…"></textarea>
+      <label style="font-weight:400;display:block;margin-bottom:.6rem">
+        <input type="checkbox" name="consent" style="width:auto;margin-right:.4rem">
+        Acepto que esta necesidad se comparta de forma <strong>agregada y anónima</strong> con la administración provincial.
+      </label>
+      <button class="btn" type="submit">Enviar</button>
+      <span id="reqmsg" class="ok" style="margin-left:.6rem"></span>
+    </form>
+  </div>
+
+  <div class="card">
+    <h3>Lo que habéis pedido</h3>
+    <div id="reqs" class="muted">—</div>
+  </div>
+</main>
+<script>
+const fmt = (n) => n == null ? '' : Number(n).toLocaleString('es-ES') + ' €';
+async function j(url, opts) { const r = await fetch(url, opts); if (r.status === 401) location.href = '/entrar'; return r.json(); }
+
+(async () => {
+  const me = await j('/api/panel/me');
+  document.getElementById('who').textContent = (me.name || me.email) + (me.municipality ? ' · ' + me.municipality : '');
+
+  const grants = await j('/api/panel/grants');
+  const box = document.getElementById('grants');
+  if (!grants.length) box.innerHTML = '<div class="card muted">De momento no hay avisos. Te avisaremos en cuanto salga algo para tu pueblo.</div>';
+  for (const g of grants) {
+    const d = document.createElement('div');
+    d.className = 'card';
+    const plazo = g.deadline ? 'hasta ' + g.deadline : (g.is_rolling ? 'plazo continuo' : 'plazo por confirmar');
+    d.innerHTML = `<strong>${g.title}</strong>
+      <p>${g.ai_summary || ''}</p>
+      <p><span class="tag">${g.amount_max ? 'hasta ' + fmt(g.amount_max) : (g.budget_total ? 'bolsa de ' + fmt(g.budget_total) : 'cuantía s/bases')}</span>
+      <span class="tag warn">${plazo}</span>
+      ${g.source_url ? `<a href="${g.source_url}" target="_blank" rel="noopener">ver convocatoria</a>` : ''}</p>
+      <p id="r-${g.notification_id}">${g.response !== 'none'
+        ? `<span class="ok">Respondiste: ${g.response === 'interesado' ? 'me interesa' : 'no'}</span>`
+        : `<button class="btn small" data-id="${g.notification_id}" data-r="interesado">Me interesa</button>
+           <button class="btn ghost small" data-id="${g.notification_id}" data-r="no">No</button>`}</p>`;
+    box.appendChild(d);
+  }
+  box.addEventListener('click', async (ev) => {
+    const b = ev.target.closest('button[data-id]');
+    if (!b) return;
+    await j(`/api/panel/grants/${b.dataset.id}/respond`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ response: b.dataset.r }) });
+    document.getElementById('r-' + b.dataset.id).innerHTML =
+      `<span class="ok">Respondiste: ${b.dataset.r === 'interesado' ? 'me interesa' : 'no'}</span>`;
+  });
+
+  loadReqs();
+})();
+
+async function loadReqs() {
+  const reqs = await j('/api/panel/requests');
+  document.getElementById('reqs').innerHTML = reqs.length
+    ? '<table>' + reqs.map(r =>
+        `<tr><td class="muted">${r.received_at.slice(0, 10)}</td><td>${r.raw_text}</td>
+         <td><span class="tag">${{open:'apuntado',matched:'hay ayuda',applied:'solicitada',funded:'¡concedida!',no_fit:'sin ayuda hoy'}[r.status]}</span></td></tr>`).join('') + '</table>'
+    : 'Todavía nada.';
+}
+
+document.getElementById('req').addEventListener('submit', async (ev) => {
+  ev.preventDefault();
+  const fd = new FormData(ev.target);
+  const r = await j('/api/panel/requests', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ text: fd.get('text'), consent: !!fd.get('consent') }) });
+  if (r.ok) { ev.target.reset(); document.getElementById('reqmsg').textContent = 'Apuntado ✔'; loadReqs(); }
+});
+
+document.getElementById('out').addEventListener('click', async () => {
+  await fetch('/api/logout', { method: 'POST' }); location.href = '/';
+});
+</script>
+</body>
+</html>
