@@ -29,7 +29,7 @@ const MAX_HISTORY = 10;
 // With the territory filter applied in SQL, a placed visitor's whole eligible set is
 // usually well under this. Unplaced visitors get a deliberately small national slice and
 // the assistant asks where they are, rather than us shipping the country every message.
-const CHAT_CONTEXT_PLACED = Number(process.env.CHAT_CONTEXT_PLACED || 25);
+const CHAT_CONTEXT_PLACED = Number(process.env.CHAT_CONTEXT_PLACED || 15);
 const CHAT_CONTEXT_UNPLACED = Number(process.env.CHAT_CONTEXT_UNPLACED || 12);
 
 // Typeahead over provinces, municipalities and pedanías.

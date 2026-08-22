@@ -5,3 +5,4 @@ db/*.sqlite-shm
 db/*.sqlite-wal
 logs/
 .operator-credentials.txt
+db/backfill-batch.state.json
