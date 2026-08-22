@@ -114,6 +114,37 @@ portal root and `urlBasesReguladoras` is the framework rules — often years old
 primary button therefore always points at the BDNS page for that reference (`source_url`), with
 those two kept as secondary links labelled for what they actually are.
 
+## Contact form
+
+`POST /api/contact` stores into `contact_message`; the operator console reads it. It is
+deliberately not the `request` table — that models a known pilot village (`municipality_id
+NOT NULL`, immutable `raw_text`) and an anonymous visitor has no municipality row. The
+place the visitor picked in *"¿de dónde eres?"* rides along, so a pedanía like Villotilla
+arrives already resolved to Villaturde / Palencia / Castilla y León.
+
+There is **no mail transport in this project and no MX record on the domain** — the
+`mailto:` this form replaced went nowhere, and `alert()` only writes to `ingest_alert`.
+`src/notify.js` therefore always writes an alert (the console renders unresolved ones at
+the top of the page) and additionally POSTs to `NOTIFY_WEBHOOK_URL` when one is set. ntfy
+and Telegram both work with no domain, no MX and no fee; see `.env.example`. A failed push
+never throws — the message is already stored and the visitor is owed a 200.
+
+Three defences, cheapest first:
+
+- **Honeypot** — `empresa`, positioned off-screen rather than `display:none` (some bots
+  skip the latter). Tripping it returns a normal `{ok:true}` and stores nothing;
+  telling the bot it failed is how it learns to stop filling the field.
+- **Per-IP daily cap** (`CONTACT_DAILY_CAP`, default 3), counted off the stored rows, so
+  it survives a restart and needs no new table.
+- **Length caps** on every field before anything reaches the DB.
+
+Messages are free text written by anonymous visitors and rendered into `innerHTML` in the
+console, so `loadContact()` escapes them — nothing else on that page needs it.
+
+Retention is `CONTACT_RETENTION_DAYS` (default 365), stated under the form and enforced by
+the 04:30 prune in `server.js`. Change one and change the other: a retention line nobody
+implements is worse than no line.
+
 ## Hard rules
 
 - **No LLM ever computes a deadline.** API date, deterministic engine, or manual — nothing else. Engine-computed dates publish immediately but are marked estimated (*) with a disclaimer on every surface until the operator confirms them (then they show as firm).

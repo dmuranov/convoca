@@ -31,6 +31,11 @@
     <div id="alerts"></div>
   </div>
 
+  <div class="card" id="contact-card" hidden>
+    <h3>Mensajes de contacto <span id="contact-count" class="muted"></span></h3>
+    <div id="contact"></div>
+  </div>
+
   <div class="card">
     <h3>Métricas</h3>
     <div id="metrics" class="muted">cargando…</div>
@@ -67,6 +72,10 @@
 const $ = (id) => document.getElementById(id);
 async function j(url, opts) { const r = await fetch(url, opts); if (r.status === 401) location.href = '/entrar'; return r.json(); }
 const post = (url, body) => j(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body || {}) });
+// Contact messages are written by anonymous visitors and rendered into innerHTML below,
+// so they must be escaped. Everything else on this page comes from BDNS or our own DB.
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, c =>
+  ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const fmt = (n) => n == null ? '—' : Number(n).toLocaleString('es-ES') + ' €';
 
 async function loadAlerts() {
@@ -75,6 +84,25 @@ async function loadAlerts() {
   $('alerts').innerHTML = a.map(x =>
     `<p>[${x.created_at}] <strong>${x.source}</strong>: ${x.message}
      <button class="btn small" onclick="post('/api/op/alerts/${x.id}/resolve').then(loadAlerts)">resuelto</button></p>`).join('');
+}
+
+async function loadContact() {
+  const rows = await j('/api/op/contact');
+  const unread = rows.filter(r => r.status === 'new').length;
+  $('contact-card').hidden = !rows.length;
+  $('contact-count').textContent = unread ? `· ${unread} sin leer` : '';
+  $('contact').innerHTML = rows.map(r => {
+    const place = [r.place_label, r.province].filter(Boolean).join(', ');
+    const opts = ['new', 'read', 'replied', 'spam']
+      .map(o => `<option value="${o}"${r.status === o ? ' selected' : ''}>${o}</option>`).join('');
+    return `<p${r.status === 'new' ? ' style="font-weight:600"' : ''}>
+      [${r.received_at}] <strong>${esc(r.name)}</strong>
+      &lt;${esc(r.contact)}&gt;${place ? ` · ${esc(place)}` : ''}<br>
+      ${esc(r.message)}<br>
+      <select onchange="post('/api/op/contact/${r.id}/status', {status: this.value}).then(loadContact)">
+        ${opts}
+      </select></p>`;
+  }).join('') || '<p class="muted">Sin mensajes.</p>';
 }
 
 async function loadMetrics() {
@@ -227,7 +255,7 @@ $('pollnow').addEventListener('click', async () => {
 $('pendingonly').addEventListener('change', loadGrants);
 $('out').addEventListener('click', async () => { await fetch('/api/logout', { method: 'POST' }); location.href = '/'; });
 
-loadAlerts(); loadMetrics(); loadGrants(); loadRequests(); loadInvites();
+loadAlerts(); loadContact(); loadMetrics(); loadGrants(); loadRequests(); loadInvites();
 </script>
 </body>
 </html>

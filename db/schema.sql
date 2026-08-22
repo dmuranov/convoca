@@ -199,3 +199,25 @@ CREATE TABLE IF NOT EXISTS ingest_alert (
   message     TEXT NOT NULL,
   resolved    INTEGER NOT NULL DEFAULT 0
 );
+
+-- Public contact form. Deliberately NOT the `request` table: that one models a known
+-- pilot village asking for something (municipality_id NOT NULL, immutable raw_text) and
+-- an anonymous visitor has no municipality row. Retention is enforced by a nightly prune
+-- in server.js and stated under the form -- see CONTACT_RETENTION_DAYS.
+CREATE TABLE IF NOT EXISTS contact_message (
+  id           TEXT PRIMARY KEY,
+  received_at  TEXT NOT NULL DEFAULT (datetime('now')),
+  name         TEXT NOT NULL,
+  contact      TEXT NOT NULL,          -- email or phone, verbatim, as they wrote it
+  place_label  TEXT,                   -- whatever they picked in "de donde eres"
+  municipality TEXT,
+  province     TEXT,
+  ccaa         TEXT,
+  message      TEXT NOT NULL,
+  ip           TEXT,                   -- for rate limiting and abuse only; pruned with the row
+  status       TEXT NOT NULL DEFAULT 'new'
+                 CHECK (status IN ('new','read','replied','spam')),
+  handled_at   TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_contact_received ON contact_message(received_at);
+CREATE INDEX IF NOT EXISTS idx_contact_status ON contact_message(status);

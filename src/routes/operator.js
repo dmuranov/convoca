@@ -159,6 +159,28 @@ operatorRouter.get('/api/op/invites', (req, res) => {
     FROM invite i LEFT JOIN municipality m ON m.id = i.municipality_id ORDER BY i.created_at DESC`).all());
 });
 
+// ---- contact messages ----
+// `new` first regardless of age: an unanswered message from last week outranks one read
+// this morning. IP is not selected -- it exists for rate limiting, not for the operator.
+operatorRouter.get('/api/op/contact', (req, res) => {
+  res.json(db.prepare(`SELECT id, received_at, name, contact, place_label, municipality,
+      province, ccaa, message, status, handled_at
+    FROM contact_message
+    WHERE status != 'spam'
+    ORDER BY (status = 'new') DESC, received_at DESC LIMIT 200`).all());
+});
+
+operatorRouter.post('/api/op/contact/:id/status', (req, res) => {
+  const { status } = req.body || {};
+  if (!['new', 'read', 'replied', 'spam'].includes(status)) {
+    return res.status(400).json({ error: 'estado inválido' });
+  }
+  db.prepare(`UPDATE contact_message
+    SET status = ?, handled_at = CASE WHEN ? = 'new' THEN NULL ELSE datetime('now') END
+    WHERE id = ?`).run(status, status, req.params.id);
+  res.json({ ok: true });
+});
+
 // ---- alerts + manual poll ----
 operatorRouter.get('/api/op/alerts', (req, res) => {
   res.json(db.prepare('SELECT * FROM ingest_alert WHERE resolved = 0 ORDER BY created_at DESC').all());

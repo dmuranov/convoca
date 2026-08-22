@@ -159,3 +159,14 @@ footer.site {
   border-top: 1px solid var(--line); margin-top: 3rem; padding: 1.6rem 0 2.2rem;
   color: var(--muted); font-size: .85rem; text-align: center;
 }
+
+/* Contact form. .hp is the honeypot: off-screen rather than display:none, because some
+   bots skip fields that are display:none but still fill ones they can "see" in the DOM.
+   It must stay reachable to the parser and unreachable to a person. */
+.hp { position: absolute; left: -9999px; width: 1px; height: 1px; overflow: hidden; }
+/* Inputs already carry a global style; only the layout and the textarea's resize
+   behaviour need saying. */
+#contact-form { margin: .8rem 0 .4rem; }
+#contact-form input, #contact-form textarea { margin: .25rem 0 .6rem; }
+#contact-form textarea { resize: vertical; }
+#contact-note:empty { display: none; }

@@ -94,10 +94,25 @@
     <div class="card">
       <h3>¿Eres alcalde o secretario?</h3>
       <p>Trabajamos por invitación, pueblo a pueblo. Si quieres que vigilemos las
-      convocatorias de tu municipio y de sus asociaciones, escríbenos a
-      <a href="mailto:hola@plazoabierto.es">hola@plazoabierto.es</a> y te lo contamos sin compromiso.</p>
-      <p class="muted">El panel para alcaldes muestra solo lo que encaja con tu pueblo:
-      tres líneas y un botón de <em>me interesa</em>.</p>
+      convocatorias de tu municipio y de sus asociaciones, déjanos aquí tu contacto
+      y te lo contamos sin compromiso.</p>
+      <form id="contact-form">
+        <input name="name" maxlength="120" placeholder="Tu nombre" autocomplete="name" required>
+        <input name="contact" maxlength="200" placeholder="Correo o teléfono" autocomplete="email" required>
+        <textarea name="message" maxlength="2000" rows="3" required
+          placeholder="Cuéntanos de qué pueblo eres y qué necesitas"></textarea>
+        <!-- Honeypot: hidden from people, irresistible to bots. Never remove the label. -->
+        <div class="hp" aria-hidden="true">
+          <label for="empresa">Empresa (no rellenar)</label>
+          <input id="empresa" name="empresa" tabindex="-1" autocomplete="off">
+        </div>
+        <button class="btn" type="submit">Enviar</button>
+        <p id="contact-note" class="muted" role="status" aria-live="polite"></p>
+      </form>
+      <p class="muted" style="font-size:.85rem">
+        Guardamos tu nombre, tu contacto y tu mensaje con el único fin de responderte.
+        No los cedemos a nadie y los borramos a los 12 meses. Si quieres que los borremos
+        antes, dínoslo en el mismo mensaje.</p>
     </div>
   </section>
 </main>
@@ -308,6 +323,35 @@ function add(role, text) {
   log.scrollTop = log.scrollHeight;
 }
 add('bot', 'Hola 👋 Soy el asistente de Plazo Abierto. Cuéntame qué necesita tu pueblo o tu asociación y te digo si hay ayudas abiertas.');
+document.getElementById('contact-form').addEventListener('submit', async (ev) => {
+  ev.preventDefault();
+  const form = ev.target;
+  const note = document.getElementById('contact-note');
+  const btn = form.querySelector('button[type=submit]');
+  const payload = Object.fromEntries(new FormData(form));
+  // Same place object the chat sends, so a message arrives already located.
+  payload.place = place;
+  btn.disabled = true;
+  note.textContent = 'Enviando…';
+  try {
+    const r = await fetch('/api/contact', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    const data = await r.json().catch(() => ({}));
+    if (r.ok) {
+      form.reset();
+      note.textContent = 'Recibido. Te contestamos en cuanto podamos.';
+    } else {
+      note.textContent = data.error || 'No se ha podido enviar. Inténtalo más tarde.';
+    }
+  } catch {
+    note.textContent = 'No se ha podido enviar. Inténtalo más tarde.';
+  } finally {
+    btn.disabled = false;
+  }
+});
+
 document.getElementById('chat-form').addEventListener('submit', async (ev) => {
   ev.preventDefault();
   const input = document.getElementById('chat-input');

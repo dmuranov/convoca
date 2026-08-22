@@ -4,10 +4,11 @@
 // Computed (unconfirmed) deadlines ARE shown, marked estimated (*) with a
 // disclaimer: the date can move with local holidays / día-hábil counting.
 import { Router } from 'express';
-import { db } from '../db.js';
+import { db, uuid } from '../db.js';
 import { anthropic, CHAT_MODEL } from '../llm.js';
 import { MUNICIPIOS, PEDANIAS, findMunicipio, fold } from '../municipios.js';
 import { NATIONWIDE, INE_PROVINCES, CCAA } from '../ingest/regions.js';
+import { notifyOperator } from '../notify.js';
 
 export const publicRouter = Router();
 
@@ -31,6 +32,10 @@ const MAX_HISTORY = 10;
 // the assistant asks where they are, rather than us shipping the country every message.
 const CHAT_CONTEXT_PLACED = Number(process.env.CHAT_CONTEXT_PLACED || 15);
 const CHAT_CONTEXT_UNPLACED = Number(process.env.CHAT_CONTEXT_UNPLACED || 12);
+
+// Contact form. The daily per-IP cap is the rate limit; the honeypot catches the rest.
+const CONTACT_CAP = Number(process.env.CONTACT_DAILY_CAP || 3);
+export const CONTACT_RETENTION_DAYS = Number(process.env.CONTACT_RETENTION_DAYS || 365);
 
 // Typeahead over provinces, municipalities and pedanías.
 //
@@ -163,6 +168,61 @@ Reglas estrictas:
 - PROHIBIDO calcular, estimar o deducir plazos o fechas. Solo puedes repetir literalmente el campo "Plazo" del listado. Si dice "pendiente de confirmar", di exactamente eso. Si la fecha lleva asterisco (*), repite siempre también el aviso de fecha estimada que la acompaña.
 - Sé breve (2-6 frases), castellano llano, tono cercano de bar de pueblo pero profesional. Sin listas largas: la mejor opción u opciones (máx. 3).
 - No pidas ni almacenes datos personales. Para seguimiento, remite al correo hola@plazoabierto.es.`;
+
+// ---- contact form ----
+//
+// Stored here rather than emailed: the domain has no MX record, so the mailto: link this
+// replaces went nowhere. Three defences, in the order they cost anything:
+//
+//  1. Honeypot. `empresa` is hidden in CSS, so a human never fills it and a bot usually
+//     does. A caught bot gets a normal 200 and nothing is stored -- telling it that it
+//     failed is how it learns to stop falling for the field.
+//  2. Per-IP daily cap, counted off the stored rows themselves, so it needs no new table
+//     and no memory that a restart would lose.
+//  3. Length caps on every field, enforced before anything touches the DB.
+publicRouter.post('/api/contact', async (req, res) => {
+  const ip = req.headers['x-forwarded-for']?.split(',')[0]?.trim() || req.socket.remoteAddress || '?';
+  const { name, contact, message, empresa, place: rawPlace } = req.body || {};
+
+  if (typeof empresa === 'string' && empresa.trim()) {
+    console.warn(`contact: honeypot tripped from ${ip}`);
+    return res.json({ ok: true });                       // deliberately indistinguishable
+  }
+
+  const clean = (v, max) => typeof v === 'string' && v.trim() ? v.trim().slice(0, max) : null;
+  const n = clean(name, 120), c = clean(contact, 200), m = clean(message, 2000);
+  if (!n || !c || !m) {
+    return res.status(400).json({ error: 'Faltan datos: nombre, contacto y mensaje son obligatorios.' });
+  }
+  // An email or a Spanish phone number -- enough to catch a typo, not so strict it rejects
+  // "620 11 22 33" or a village address. Anything else is still accepted with a nudge.
+  if (!/@/.test(c) && !/\d{6,}/.test(c.replace(/[\s.-]/g, ''))) {
+    return res.status(400).json({ error: 'Deja un correo o un teléfono para poder contestarte.' });
+  }
+
+  const since = new Date(Date.now() - 86400_000).toISOString().slice(0, 19).replace('T', ' ');
+  const recent = db.prepare('SELECT COUNT(*) c FROM contact_message WHERE ip = ? AND received_at >= ?')
+    .get(ip, since).c;
+  if (recent >= CONTACT_CAP) {
+    return res.status(429).json({ error: 'Ya nos has escrito hoy. Te contestamos en cuanto podamos.' });
+  }
+
+  const place = resolvePlace(rawPlace);
+  db.prepare(`INSERT INTO contact_message
+      (id, name, contact, place_label, municipality, province, ccaa, message, ip)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+    .run(uuid(), n, c, place?.label || null, place?.name || null,
+      place?.province || null, place?.ccaa || null, m, ip);
+
+  // Await it: the push is capped at 8s and never throws, and a fire-and-forget here would
+  // lose the notification whenever the process restarts right after a submission.
+  await notifyOperator(`Nuevo mensaje de ${n}${place?.label ? ` (${place.label})` : ''}`,
+    `${c}
+
+${m}`);
+
+  res.json({ ok: true });
+});
 
 publicRouter.post('/api/chat', async (req, res) => {
   const ip = req.headers['x-forwarded-for']?.split(',')[0]?.trim() || req.socket.remoteAddress || '?';

@@ -4,7 +4,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import cron from 'node-cron';
 import { db } from './src/db.js';
-import { publicRouter } from './src/routes/public.js';
+import { publicRouter, CONTACT_RETENTION_DAYS } from './src/routes/public.js';
 import { panelRouter } from './src/routes/panel.js';
 import { operatorRouter } from './src/routes/operator.js';
 import { login, logout, loginThrottled, redeemInvite, sessionUser,
@@ -85,9 +85,14 @@ if (process.env.NODE_ENV === 'production') {
   }, { timezone: 'Europe/Madrid' });
 }
 
-// prune expired sessions daily
+// prune expired sessions daily, and enforce the contact-form retention rule promised
+// under the form itself -- a retention line nobody implements is worse than none.
 cron.schedule('30 4 * * *', () => {
   db.prepare('DELETE FROM session WHERE expires_at < ?').run(new Date().toISOString());
+  const cutoff = new Date(Date.now() - CONTACT_RETENTION_DAYS * 86400_000)
+    .toISOString().slice(0, 19).replace('T', ' ');
+  const { changes } = db.prepare('DELETE FROM contact_message WHERE received_at < ?').run(cutoff);
+  if (changes) console.log(`pruned ${changes} contact message(s) older than ${CONTACT_RETENTION_DAYS} days`);
 });
 
 const PORT = process.env.PORT || 3003;
