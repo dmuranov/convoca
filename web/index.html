@@ -7,6 +7,15 @@
 <meta name="description" content="Plazo Abierto — ayudas y subvenciones para pueblos, asociaciones y entidades locales. En tu idioma, con la fecha clara.">
 <link rel="icon" type="image/png" href="/favicon.png">
 <link rel="stylesheet" href="/styles.css">
+<!-- Microsoft Clarity — public pages only; never on /panel or /operator, whose
+     session replays would capture municipal and personal data. -->
+<script type="text/javascript">
+    (function(c,l,a,r,i,t,y){
+        c[a]=c[a]||function(){(c[a].q=c[a].q||[]).push(arguments)};
+        t=l.createElement(r);t.async=1;t.src="https://www.clarity.ms/tag/"+i;
+        y=l.getElementsByTagName(r)[0];y.parentNode.insertBefore(t,y);
+    })(window, document, "clarity", "script", "y5s3t0x5yi");
+</script>
 </head>
 <body>
 <header class="site">
@@ -40,8 +49,20 @@
 
   <section id="abiertas" style="padding-top:1rem">
     <h2 style="text-align:center">Convocatorias abiertas</h2>
+    <div class="region-filter" id="region-filter">
+      <label for="place-input">¿De dónde eres?</label>
+      <span class="place-box">
+        <input id="place-input" type="search" autocomplete="off" placeholder="tu pueblo, pedanía o provincia — p. ej. Villotilla">
+        <div class="place-menu" id="place-menu" hidden></div>
+      </span>
+      <button class="btn small ghost" id="place-clear" type="button" hidden>ver toda España</button>
+      <span class="muted" id="region-hint">Te enseñamos lo estatal, lo de tu comunidad, lo de tu diputación y lo de tu ayuntamiento. Valen también las pedanías y juntas vecinales.</span>
+    </div>
     <div class="filter-chips" id="filters"></div>
     <div class="grants-grid" id="grid"></div>
+    <p class="muted" id="est-note" hidden style="font-size:.85em">
+      * Fecha estimada: puede variar según festivos locales y el cómputo de días hábiles.
+      Confírmala siempre en las bases oficiales de la convocatoria.</p>
     <p class="muted" id="empty" hidden style="text-align:center">
       Ahora mismo no hay convocatorias publicadas en el índice. Pregunta al asistente o
     escríbenos y te avisamos en cuanto salga algo.</p>
@@ -94,8 +115,12 @@
 <script>
 document.getElementById('yr').textContent = new Date().getFullYear();
 const eur = (n) => n == null ? null : Number(n).toLocaleString('es-ES') + ' €';
+// Grant text is third-party (BDNS + model output) and the grid is built with innerHTML.
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, c =>
+  ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const TYPES = { Ayuntamiento: 'Ayuntamientos', Junta_Vecinal: 'Juntas vecinales', Asociacion: 'Asociaciones', Club_Deportivo: 'Clubes', AMPA: 'AMPAs', Otro: 'Otras' };
-let ALL = [], activeCat = null;
+let ALL = [], activeCat = null, place = null;   // place = {name, province, ccaa}
+const NATIONWIDE = 'Toda España';   // mirrors src/ingest/regions.js
 
 function daysLeft(deadline) {
   if (!deadline) return null;
@@ -104,32 +129,148 @@ function daysLeft(deadline) {
 
 function render() {
   const grid = document.getElementById('grid');
-  const list = activeCat ? ALL.filter(g => (g.category || 'otros') === activeCat) : ALL;
+  // Four tiers apply to a place: nationwide, its comunidad, its province, its own town.
+  // A call from a different province — or from another town's ayuntamiento — is excluded.
+  // That is the whole point of asking where you are.
+  let list = place
+    ? ALL.filter(g => {
+        if (g.region === NATIONWIDE) return true;
+        if (g.region !== place.ccaa) return false;
+        if (g.province && g.province !== place.province) return false;
+        // Town-only money: needs an exact municipality match, so a visitor who only
+        // named their province never sees it.
+        if (g.municipality) return g.municipality === place.name;
+        return true;
+      })
+    : ALL;
+  if (activeCat) list = list.filter(g => (g.category || 'otros') === activeCat);
   document.getElementById('empty').hidden = !!list.length;
-  grid.innerHTML = list.map(g => {
+  document.getElementById('est-note').hidden = !list.some(g => g.deadline && g.deadline_estimated);
+  grid.innerHTML = list.map((g, i) => {
     const d = daysLeft(g.deadline);
+    const est = g.deadline_estimated ? '*' : '';
+    const estTitle = g.deadline_estimated ? ' title="Fecha estimada: puede variar según festivos locales y el cómputo de días hábiles. Confírmala en las bases oficiales."' : '';
     const badge = d != null
-      ? `<span class="badge-days ${d <= 10 ? 'soon' : ''}">${d <= 0 ? 'último día' : `quedan ${d} días`}</span>`
+      ? `<span class="badge-days ${d <= 10 ? 'soon' : ''}"${estTitle}>${d <= 0 ? 'último día' : `quedan ${d} días`}${est}</span>`
       : (g.is_rolling ? '<span class="badge-days">plazo continuo</span>' : '<span class="badge-days soon">plazo por confirmar</span>');
     const types = JSON.parse(g.entity_types || '[]').map(t => TYPES[t] || t).join(', ');
     let funds = JSON.parse(g.funds_what || '[]').slice(0, 2).join(', ');
     if (funds.length > 48) funds = funds.slice(0, 48) + '…';
     const amount = g.amount_max ? 'hasta ' + eur(g.amount_max) : (g.budget_total ? 'bolsa de ' + eur(g.budget_total) : 'según bases');
+    // Plain-Spanish headline leads; the official legal wording stays available but small.
+    const head = g.plain_title || g.title;
+    const official = g.plain_title && g.title !== g.plain_title
+      ? `<p class="official">Título oficial: ${esc(g.title)}</p>` : '';
+
+    // "En cristiano" panel: the dumbed-down explainer, collapsed until asked for.
+    let ex = null;
+    try { ex = g.plain_explainer ? JSON.parse(g.plain_explainer) : null; } catch { ex = null; }
+    const explainer = ex ? `
+      <button class="btn ghost block explain-btn" type="button" aria-expanded="false" aria-controls="ex-${i}">
+        Explícamelo en cristiano
+      </button>
+      <div class="explainer" id="ex-${i}" hidden>
+        ${[['¿Para qué es?', ex.para_que], ['¿Quién puede pedirla?', ex.quien_puede],
+           ['¿Qué cubre?', ex.que_cubre], ['¿Qué no cubre?', ex.que_no_cubre],
+           ['¿Cómo se pide?', ex.como_se_pide]]
+          .filter(([, v]) => v && v.trim())
+          .map(([k, v]) => `<p><strong>${k}</strong><br>${esc(v)}</p>`).join('')}
+        <p class="official">Resumen redactado automáticamente a partir de las bases oficiales.
+        Ante cualquier duda manda la convocatoria oficial.</p>
+      </div>` : '';
+
+    // BDNS is the only link guaranteed to point at THIS convocatoria. `sede_url` is the
+    // organism's generic portal and `application_url` the (often years-older) bases
+    // reguladoras, so both are secondary and clearly labelled as what they are.
+    const extras = [
+      g.sede_url ? `<a href="${esc(g.sede_url)}" target="_blank" rel="noopener">sede electrónica</a>` : '',
+      g.application_url ? `<a href="${esc(g.application_url)}" target="_blank" rel="noopener">bases reguladoras</a>` : '',
+    ].filter(Boolean).join(' · ');
+
     return `<article class="grant-card">
-      <div class="org">${g.granting_body || ''} ${badge}</div>
-      <h4>${g.title}</h4>
-      <p class="desc">${(g.ai_summary || '').slice(0, 180)}${(g.ai_summary || '').length > 180 ? '…' : ''}</p>
+      <div class="org">${esc(g.granting_body || '')} ${badge}</div>
+      <h4>${esc(head)}</h4>
+      <p class="desc">${esc(g.ai_summary || '')}</p>
       <div>
         <span class="chip"><span class="k">Cuantía</span><span class="v">${amount}</span></span>
-        ${g.territory_scope ? `<span class="chip"><span class="k">Ámbito</span><span class="v">${g.territory_scope.slice(0, 40)}</span></span>` : ''}
-        ${types ? `<span class="chip"><span class="k">Pueden pedirla</span><span class="v">${types}</span></span>` : ''}
+        ${g.territory_scope ? `<span class="chip"><span class="k">Ámbito</span><span class="v">${esc(g.territory_scope.slice(0, 40))}</span></span>` : ''}
+        ${types ? `<span class="chip"><span class="k">Pueden pedirla</span><span class="v">${esc(types)}</span></span>` : ''}
       </div>
-      <div style="margin:.3rem 0 .8rem">${g.category ? `<span class="tag">${g.category}</span>` : ''}${funds ? `<span class="tag">${funds}</span>` : ''}</div>
+      <div style="margin:.3rem 0 .8rem">${g.category ? `<span class="tag">${esc(g.category)}</span>` : ''}${funds ? `<span class="tag">${esc(funds)}</span>` : ''}</div>
+      ${explainer}
       <div class="spacer"></div>
-      <a class="btn block" target="_blank" rel="noopener" href="${g.application_url || g.source_url}">Ver convocatoria →</a>
+      <a class="btn block" target="_blank" rel="noopener" href="${esc(g.source_url)}">Ver convocatoria oficial →</a>
+      ${extras ? `<p class="official links">${extras}</p>` : ''}
+      ${official}
     </article>`;
   }).join('');
 }
+
+// ---- "¿De dónde eres?" typeahead ----
+const placeInput = document.getElementById('place-input');
+const placeMenu = document.getElementById('place-menu');
+const placeClear = document.getElementById('place-clear');
+
+function setPlace(p, { silent = false } = {}) {
+  place = p;
+  // `label` is the place they typed (maybe a pedanía); `name` is the municipality it
+  // resolves to, which is what matches ayuntamiento-level grants.
+  placeInput.value = p ? (p.label || p.name) : '';
+  placeClear.hidden = !p;
+  placeMenu.hidden = true;
+  try {
+    if (p) localStorage.setItem('pa_place', JSON.stringify(p));
+    else localStorage.removeItem('pa_place');
+  } catch { /* ignore */ }
+  if (!silent) render();
+}
+
+let placeTimer, placeSeq = 0;
+placeInput.addEventListener('input', () => {
+  clearTimeout(placeTimer);
+  const q = placeInput.value.trim();
+  if (q.length < 2) { placeMenu.hidden = true; return; }
+  placeTimer = setTimeout(async () => {
+    const seq = ++placeSeq;
+    try {
+      const r = await (await fetch('/api/municipios?q=' + encodeURIComponent(q))).json();
+      if (seq !== placeSeq) return;                 // a later keystroke already won
+      if (!r.matches.length) {
+        placeMenu.innerHTML = '<div class="place-empty">No lo encontramos. '
+          + 'Prueba con el nombre de tu municipio o de tu provincia.</div>';
+        placeMenu.hidden = false;
+        return;
+      }
+      placeMenu.innerHTML = r.matches.map((m, i) =>
+        `<button type="button" data-i="${i}">${esc(m.label)}
+          <span class="muted">${esc(m.hint || m.province || '')}</span>
+        </button>`).join('');
+      placeMenu._matches = r.matches;
+      placeMenu.hidden = false;
+    } catch { placeMenu.hidden = true; }
+  }, 180);
+});
+
+placeMenu.addEventListener('click', (ev) => {
+  const b = ev.target.closest('button[data-i]');
+  if (!b) return;
+  setPlace(placeMenu._matches[+b.dataset.i]);
+});
+placeClear.addEventListener('click', () => setPlace(null));
+document.addEventListener('click', (ev) => {
+  if (!ev.target.closest('.place-box')) placeMenu.hidden = true;
+});
+
+// Delegated so it survives every re-render (category filtering rebuilds the grid).
+document.getElementById('grid').addEventListener('click', (ev) => {
+  const btn = ev.target.closest('.explain-btn');
+  if (!btn) return;
+  const panel = document.getElementById(btn.getAttribute('aria-controls'));
+  const open = panel.hidden;
+  panel.hidden = !open;
+  btn.setAttribute('aria-expanded', String(open));
+  btn.textContent = open ? 'Ocultar explicación' : 'Explícamelo en cristiano';
+});
 
 (async () => {
   try {
@@ -140,13 +281,19 @@ function render() {
       ? new Date(j.stats.updated).toLocaleDateString('es-ES', { day: 'numeric', month: 'short', year: 'numeric' }) : '—';
     const cats = [...new Set(ALL.map(g => g.category || 'otros'))];
     document.getElementById('filters').innerHTML = cats.length > 1
-      ? `<button class="on" data-c="">Todas</button>` + cats.map(c => `<button data-c="${c}">${c}</button>`).join('') : '';
+      ? `<button class="on" data-c="">Todas</button>` + cats.map(c => `<button data-c="${esc(c)}">${esc(c)}</button>`).join('') : '';
     document.getElementById('filters').addEventListener('click', (ev) => {
       const b = ev.target.closest('button'); if (!b) return;
       activeCat = b.dataset.c || null;
       document.querySelectorAll('#filters button').forEach(x => x.classList.toggle('on', x === b));
       render();
     });
+
+    // Remembered per browser so a village doesn't retype where it is on every visit.
+    try {
+      const saved = JSON.parse(localStorage.getItem('pa_place') || 'null');
+      if (saved?.ccaa) setPlace(saved, { silent: true });
+    } catch { /* private mode / blocked storage: just show everything */ }
     render();
   } catch { document.getElementById('empty').hidden = false; }
 })();
@@ -174,7 +321,9 @@ document.getElementById('chat-form').addEventListener('submit', async (ev) => {
   try {
     const r = await fetch('/api/chat', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ message, history: history.slice(0, -1) }),
+      // Send the chosen place so the server filters by territory in SQL rather than
+      // shipping the whole country and paying the model to ignore most of it.
+      body: JSON.stringify({ message, history: history.slice(0, -1), place }),
     });
     const j = await r.json();
     thinking.textContent = j.reply || j.error || 'No he podido responder.';

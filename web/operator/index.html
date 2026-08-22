@@ -38,6 +38,10 @@
 
   <div class="card">
     <h3>Convocatorias <label style="font-weight:400"><input type="checkbox" id="pendingonly" checked style="width:auto"> solo pendientes</label></h3>
+    <p id="bulk-bar" style="font-size:.9rem; display:flex; gap:.6rem; align-items:center; flex-wrap:wrap">
+      <button class="btn small" id="bulk-publish" type="button">Publicar todas</button>
+      <span class="muted" id="bulk-note"></span>
+    </p>
     <div id="grants"></div>
   </div>
 
@@ -86,9 +90,19 @@ async function loadMetrics() {
      ${Object.entries(base).map(([n, ys]) => `<p><strong>${n}</strong>: ${ys.join(' · ')}</p>`).join('')}</details>`;
 }
 
+let LISTED = [];   // ids currently listed, for the bulk publish button
+
 async function loadGrants() {
   const pending = $('pendingonly').checked;
   const gs = await j('/api/op/grants' + (pending ? '?q=pending' : ''));
+  // Only rows that were actually extracted and are not already live can be bulk published.
+  LISTED = gs.filter(g => !g.published && g.ai_summary && g.status !== 'CLOSED').map(g => g.id);
+  $('bulk-publish').disabled = !LISTED.length;
+  $('bulk-publish').textContent = LISTED.length
+    ? `Publicar todas (${LISTED.length})` : 'Publicar todas';
+  $('bulk-note').textContent = LISTED.length
+    ? `${LISTED.length} sin publicar de ${gs.length} en la lista`
+    : 'nada publicable en esta lista';
   $('grants').innerHTML = gs.length ? '' : '<p class="muted">Nada pendiente.</p>';
   for (const g of gs) {
     const d = document.createElement('details');
@@ -129,6 +143,22 @@ async function publish(id, on) {
   const r = await post(`/api/op/grants/${id}/publish`, { published: !!on });
   if (r.error) alert(r.error); else loadGrants();
 }
+$('bulk-publish').addEventListener('click', async () => {
+  if (!LISTED.length) return;
+  if (!confirm(`Publicar ${LISTED.length} convocatorias en el directorio público.\n\n`
+    + 'Los resúmenes están redactados automáticamente y las fechas calculadas saldrán '
+    + 'marcadas como estimadas (*). ¿Continuar?')) return;
+  $('bulk-publish').disabled = true;
+  // The endpoint caps a batch at 500.
+  let published = 0, skipped = 0;
+  for (let i = 0; i < LISTED.length; i += 500) {
+    const r = await post('/api/op/grants/publish-batch', { ids: LISTED.slice(i, i + 500) });
+    if (r.error) { alert(r.error); break; }
+    published += r.published; skipped += r.skipped;
+  }
+  alert(`Publicadas ${published}${skipped ? ` (${skipped} omitidas)` : ''}.`);
+  loadGrants();
+});
 async function candidates(id) {
   const c = await j(`/api/op/grants/${id}/candidates`);
   $('cand-' + id).innerHTML = c.length

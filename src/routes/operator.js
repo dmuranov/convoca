@@ -10,11 +10,19 @@ operatorRouter.use('/api/op', requireAuth('operator'));
 
 // ---- convocatoria queue ----
 operatorRouter.get('/api/op/grants', (req, res) => {
-  const filter = req.query.q === 'pending' ? 'WHERE g.published = 0' : '';
+  // Screened-out rows (skip_reason set) are never part of the review workflow: the poller
+  // rejected them as not-applicable and they can never be published. Spain-wide they are
+  // ~80% of the table, so leaving them in buried the real queue. `?q=skipped` can still
+  // inspect them when auditing the gate.
+  const where = req.query.q === 'skipped'
+    ? 'WHERE g.skip_reason IS NOT NULL'
+    : req.query.q === 'pending'
+      ? 'WHERE g.skip_reason IS NULL AND g.published = 0'
+      : 'WHERE g.skip_reason IS NULL';
   const rows = db.prepare(`
     SELECT g.*, e.entity_types, e.funds_what, e.territory_scope, e.pop_min, e.pop_max
     FROM grant_row g LEFT JOIN grant_eligibility e ON e.grant_id = g.id
-    ${filter} ORDER BY g.created_at DESC LIMIT 200`).all();
+    ${where} ORDER BY g.created_at DESC LIMIT 500`).all();
   res.json(rows);
 });
 
@@ -38,27 +46,51 @@ operatorRouter.post('/api/op/grants/:id/publish', (req, res) => {
   const g = db.prepare('SELECT deadline_date, deadline_source, deadline_confirmed, is_rolling FROM grant_row WHERE id = ?')
     .get(req.params.id);
   if (!g) return res.status(404).json({ error: 'no encontrado' });
-  // hard gate: a computed, unconfirmed deadline cannot go out
-  if (g.deadline_date && g.deadline_source === 'computed' && !g.deadline_confirmed) {
-    return res.status(409).json({ error: 'plazo calculado sin confirmar — confírmalo o corrígelo antes de publicar' });
-  }
+  // Computed, unconfirmed deadlines no longer block publishing: they go out
+  // marked estimated (*) with a disclaimer on every surface. Confirming in the
+  // panel upgrades them to a firm date.
+  const warning = g.deadline_date && g.deadline_source === 'computed' && !g.deadline_confirmed
+    ? 'plazo calculado sin confirmar — se publicará como fecha estimada (*)' : null;
   db.prepare(`UPDATE grant_row SET published = ?, status = CASE WHEN ? = 1 AND status = 'ANNOUNCED' THEN 'OPEN' ELSE status END WHERE id = ?`)
     .run(req.body?.published ? 1 : 0, req.body?.published ? 1 : 0, req.params.id);
-  res.json({ ok: true });
+  res.json({ ok: true, warning });
+});
+
+// Bulk publish. Spain-wide the queue runs ~200/week, which is past what anyone
+// reviews one card at a time; this publishes an explicit list of ids in one go.
+// Still operator-initiated and still reversible — the poller never publishes.
+operatorRouter.post('/api/op/grants/publish-batch', (req, res) => {
+  const ids = Array.isArray(req.body?.ids) ? req.body.ids.filter(x => typeof x === 'string') : null;
+  if (!ids?.length) return res.status(400).json({ error: 'faltan ids' });
+  if (ids.length > 500) return res.status(400).json({ error: 'máximo 500 por lote' });
+
+  const publish = db.prepare(`UPDATE grant_row
+      SET published = 1, status = CASE WHEN status = 'ANNOUNCED' THEN 'OPEN' ELSE status END
+    WHERE id = ? AND ai_summary IS NOT NULL AND status IN ('OPEN','ANNOUNCED')`);
+  const run = db.transaction((list) => list.reduce((n, id) => n + publish.run(id).changes, 0));
+  const published = run(ids);
+
+  const estimated = db.prepare(`SELECT COUNT(*) c FROM grant_row
+    WHERE published = 1 AND deadline_source = 'computed' AND deadline_confirmed = 0`).get().c;
+  res.json({ ok: true, published, skipped: ids.length - published, estimated_deadlines: estimated });
 });
 
 // Surface a grant to an entity => notification row + draft texts to copy-paste (manual send in V1).
 operatorRouter.post('/api/op/grants/:id/notify', (req, res) => {
   const { entity_id, channel } = req.body || {};
   if (!['whatsapp', 'email', 'web'].includes(channel)) return res.status(400).json({ error: 'canal inválido' });
-  const g = db.prepare(`SELECT g.*, CASE WHEN g.deadline_source='api' OR g.deadline_confirmed=1 THEN g.deadline_date END AS ok_deadline
+  const g = db.prepare(`SELECT g.*,
+      CASE WHEN g.deadline_source='api' OR g.deadline_confirmed=1 THEN g.deadline_date END AS ok_deadline,
+      CASE WHEN g.deadline_source='computed' AND g.deadline_confirmed=0 THEN g.deadline_date END AS est_deadline
     FROM grant_row g WHERE g.id = ?`).get(req.params.id);
   const e = db.prepare(`SELECT e.*, m.name AS muni FROM entity e JOIN municipality m ON m.id = e.municipality_id WHERE e.id = ?`).get(entity_id);
   if (!g || !e) return res.status(404).json({ error: 'no encontrado' });
   if (!g.published) return res.status(409).json({ error: 'publica la convocatoria antes de notificar' });
   db.prepare(`INSERT INTO notification (id, grant_id, entity_id, channel) VALUES (?, ?, ?, ?)`)
     .run(uuid(), req.params.id, entity_id, channel);
-  const plazo = g.ok_deadline ? `hasta ${g.ok_deadline}` : 'plazo por confirmar';
+  const plazo = g.ok_deadline ? `hasta ${g.ok_deadline}`
+    : g.est_deadline ? `hasta ${g.est_deadline} aprox. (fecha estimada, confírmala en las bases)`
+    : 'plazo por confirmar';
   const cuantia = g.amount_max ? `hasta ${g.amount_max.toLocaleString('es-ES')}€` : (g.budget_total ? `bolsa de ${g.budget_total.toLocaleString('es-ES')}€` : 's/cuantía');
   res.json({
     ok: true,

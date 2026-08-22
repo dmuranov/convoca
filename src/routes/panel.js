@@ -10,9 +10,11 @@ panelRouter.use('/api/panel', requireAuth('alcalde'));
 panelRouter.get('/api/panel/grants', (req, res) => {
   const rows = db.prepare(`
     SELECT n.id AS notification_id, n.response, n.sent_at,
-           g.title, g.ai_summary, g.amount_max, g.budget_total, g.source_url, g.application_url,
-           CASE WHEN g.deadline_source = 'api' OR g.deadline_confirmed = 1
-                THEN g.deadline_date ELSE NULL END AS deadline,
+           COALESCE(g.plain_title, g.title) AS title, g.ai_summary, g.plain_explainer,
+           g.amount_max, g.budget_total, g.source_url, g.application_url,
+           g.deadline_date AS deadline,
+           CASE WHEN g.deadline_source = 'computed' AND g.deadline_confirmed = 0
+                THEN 1 ELSE 0 END AS deadline_estimated,
            g.is_rolling, e.name AS entity_name
     FROM notification n
     JOIN grant_row g ON g.id = n.grant_id

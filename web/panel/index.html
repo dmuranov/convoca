@@ -53,12 +53,17 @@ async function j(url, opts) { const r = await fetch(url, opts); if (r.status ===
   for (const g of grants) {
     const d = document.createElement('div');
     d.className = 'card';
-    const plazo = g.deadline ? 'hasta ' + g.deadline : (g.is_rolling ? 'plazo continuo' : 'plazo por confirmar');
+    const plazo = g.deadline
+      ? 'hasta ' + g.deadline + (g.deadline_estimated ? '*' : '')
+      : (g.is_rolling ? 'plazo continuo' : 'plazo por confirmar');
+    const estNote = g.deadline && g.deadline_estimated
+      ? '<p class="muted" style="font-size:.85em">* Fecha estimada: puede variar según festivos locales y el cómputo de días hábiles. Confírmala en las bases oficiales.</p>' : '';
     d.innerHTML = `<strong>${g.title}</strong>
       <p>${g.ai_summary || ''}</p>
       <p><span class="tag">${g.amount_max ? 'hasta ' + fmt(g.amount_max) : (g.budget_total ? 'bolsa de ' + fmt(g.budget_total) : 'cuantía s/bases')}</span>
       <span class="tag warn">${plazo}</span>
       ${g.source_url ? `<a href="${g.source_url}" target="_blank" rel="noopener">ver convocatoria</a>` : ''}</p>
+      ${estNote}
       <p id="r-${g.notification_id}">${g.response !== 'none'
         ? `<span class="ok">Respondiste: ${g.response === 'interesado' ? 'me interesa' : 'no'}</span>`
         : `<button class="btn small" data-id="${g.notification_id}" data-r="interesado">Me interesa</button>

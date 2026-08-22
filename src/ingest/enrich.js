@@ -8,6 +8,8 @@ import { createRequire } from 'node:module';
 import { db, uuid } from '../db.js';
 import { bdnsGet, alert } from './bdns.js';
 import { computeDeadline } from './dates.js';
+import { territoryFromRegiones } from './regions.js';
+import { municipioFromBody } from '../municipios.js';
 import { anthropic, MODEL } from '../llm.js';
 import { suggestMatches } from './match.js';
 
@@ -36,12 +38,26 @@ export function parsePlazoTerm(text) {
   return { count, unit, raw: m[0] };
 }
 
-const ELIGIBILITY_SCHEMA = {
+export const ELIGIBILITY_SCHEMA = {
   type: 'object',
   additionalProperties: false,
-  required: ['resumen', 'entity_types', 'funds_what', 'territory_scope', 'pop_min', 'pop_max', 'category'],
+  required: ['titulo_claro', 'resumen', 'explicacion', 'entity_types', 'funds_what', 'territory_scope', 'pop_min', 'pop_max', 'category'],
   properties: {
+    titulo_claro: { type: 'string', description: 'Titular en castellano llano de MENOS de 80 caracteres que diga para qué sirve la ayuda, como se lo explicarías a un vecino. Nada de "Orden de 14 de agosto de 2026, de la Consejería de...". Ejemplo: "Ayudas para inscribir ganado de razas autóctonas en el libro genealógico". Sin fechas.' },
     resumen: { type: 'string', description: 'Resumen en castellano llano, 2-4 frases: qué paga, para quién, cuánto. NUNCA menciones plazos ni fechas límite.' },
+    explicacion: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['para_que', 'quien_puede', 'que_cubre', 'que_no_cubre', 'como_se_pide'],
+      description: 'Explicación para alguien sin formación jurídica: un alcalde de pueblo o el presidente de una asociación. Nada de jerga administrativa. Prohibido mencionar plazos, fechas o cómputos de días.',
+      properties: {
+        para_que: { type: 'string', description: '2-3 frases: para qué sirve esta ayuda y qué problema resuelve, en lenguaje de calle.' },
+        quien_puede: { type: 'string', description: '1-3 frases: quién puede pedirla, con ejemplos concretos (ayuntamientos pequeños, asociaciones culturales, clubes deportivos, ganaderos...). Si hay límite de población o requisitos raros, dilo claro.' },
+        que_cubre: { type: 'string', description: '1-3 frases: qué gastos paga y cuánto dinero se puede recibir. Si hay que poner dinero propio (cofinanciación), dilo.' },
+        que_no_cubre: { type: 'string', description: '1-2 frases: exclusiones o gastos que NO entran. Si las bases no lo dicen, escribe exactamente "No se especifica en las bases."' },
+        como_se_pide: { type: 'string', description: '1-2 frases: cómo se solicita (sede electrónica, papel, qué documentación básica). Sin fechas. Si no consta, escribe exactamente "No se especifica en las bases."' },
+      },
+    },
     entity_types: { type: 'array', items: { type: 'string', enum: ['Ayuntamiento', 'Junta_Vecinal', 'Asociacion', 'Club_Deportivo', 'AMPA', 'Otro'] } },
     funds_what: { type: 'array', items: { type: 'string' }, description: 'p.ej. obra, mobiliario, actividad, equipamiento, contratación' },
     territory_scope: { type: 'string', description: 'provincia / comarca / CCAA / municipio concreto' },
@@ -51,8 +67,11 @@ const ELIGIBILITY_SCHEMA = {
   },
 };
 
-async function llmExtract(grant, detail, basesText) {
-  const context = [
+export const EXTRACT_SYSTEM = 'Eres un analista de subvenciones públicas españolas. Extraes elegibilidad y resumen de convocatorias para entidades locales rurales (ayuntamientos pequeños, juntas vecinales, asociaciones). Responde SOLO con el JSON pedido. Prohibido calcular, estimar o mencionar plazos o fechas límite en cualquier campo.';
+
+// Exported so model comparisons run the real prompt rather than a drifting copy.
+export function extractContext(grant, detail, basesText) {
+  return [
     `Título: ${grant.title}`,
     `Órgano: ${grant.granting_body || ''}`,
     `Finalidad BDNS: ${detail.descripcionFinalidad || ''}`,
@@ -61,11 +80,15 @@ async function llmExtract(grant, detail, basesText) {
     `Presupuesto total: ${detail.presupuestoTotal ?? 'n/d'}`,
     basesText ? `\n--- TEXTO DE LAS BASES (extracto) ---\n${basesText.slice(0, 60000)}` : '',
   ].join('\n');
+}
+
+async function llmExtract(grant, detail, basesText) {
+  const context = extractContext(grant, detail, basesText);
 
   const response = await anthropic.messages.create({
     model: MODEL,
     max_tokens: 2048,
-    system: 'Eres un analista de subvenciones públicas españolas. Extraes elegibilidad y resumen de convocatorias para entidades locales rurales (ayuntamientos pequeños, juntas vecinales, asociaciones). Responde SOLO con el JSON pedido. Prohibido calcular, estimar o mencionar plazos o fechas límite en cualquier campo.',
+    system: EXTRACT_SYSTEM,
     output_config: { format: { type: 'json_schema', schema: ELIGIBILITY_SCHEMA } },
     messages: [{ role: 'user', content: context }],
   });
@@ -73,9 +96,12 @@ async function llmExtract(grant, detail, basesText) {
   return JSON.parse(text);
 }
 
-export async function enrichGrant(grantId, bdnsRef) {
+// `detail` may be supplied by the caller: the poller already fetches it to screen
+// convocatorias before paying for extraction, and re-fetching would double the
+// request count against an API that is known to block noisy clients.
+export async function enrichGrant(grantId, bdnsRef, { detail: pre } = {}) {
   const grant = db.prepare('SELECT * FROM grant_row WHERE id = ?').get(grantId);
-  const detail = await bdnsGet('/convocatorias', { numConv: bdnsRef });
+  const detail = pre || await bdnsGet('/convocatorias', { numConv: bdnsRef });
 
   // -- deadline (deterministic only) --
   let deadline = null, source = null, confirmed = 0;
@@ -114,18 +140,52 @@ export async function enrichGrant(grantId, bdnsRef) {
     alert('extract', `convocatoria ${bdnsRef}: ${e.message}`);
   }
 
+  // Links. BDNS gives no per-convocatoria application URL: `sedeElectronica` is the
+  // organism's generic portal root and `urlBasesReguladoras` is the framework rules,
+  // often years older than this call. Neither belongs on a "ver convocatoria" button,
+  // so the canonical link stays the BDNS page (grant.source_url) and these are stored
+  // separately, as secondary links, with their occasional malformed scheme repaired.
+  // Territory. An ayuntamiento's call is open to that town alone, and BDNS names the town
+  // in the organism path, so resolve it against the INE dictionary — that also supplies
+  // the province in the cases where `regiones` only gave the comunidad.
+  const territory = territoryFromRegiones(detail.regiones, detail.organo?.nivel1);
+  const muni = municipioFromBody(grant.granting_body);
+  if (muni) {
+    territory.province ||= muni.province;
+    territory.ccaa ||= muni.ccaa;
+  }
+
+  const cleanUrl = (u) => {
+    if (typeof u !== 'string' || !u.trim()) return null;
+    const fixed = u.trim().replace(/^(https?:)\/(?!\/)/, '$1//');
+    return /^https?:\/\/[^/]+/.test(fixed) ? fixed : null;
+  };
+
   db.prepare(`UPDATE grant_row SET
       deadline_date = ?, deadline_source = ?, deadline_confirmed = ?, status = ?,
       budget_total = ?, application_url = COALESCE(?, application_url),
-      raw_text = ?, ai_summary = ?, category = COALESCE(?, category),
-      is_rolling = ?
+      sede_url = COALESCE(?, sede_url),
+      raw_text = ?, ai_summary = ?, plain_title = COALESCE(?, plain_title),
+      plain_explainer = COALESCE(?, plain_explainer),
+      region = COALESCE(?, region), province = COALESCE(?, province),
+      municipality = COALESCE(?, municipality),
+      category = COALESCE(?, category), is_rolling = ?
     WHERE id = ?`)
     .run(deadline, source, confirmed, status,
-      detail.presupuestoTotal ?? null, detail.sedeElectronica || detail.urlBasesReguladoras || null,
-      basesText ? basesText.slice(0, 200000) : null, ai?.resumen || null, ai?.category || null,
+      detail.presupuestoTotal ?? null,
+      cleanUrl(detail.urlBasesReguladoras), cleanUrl(detail.sedeElectronica),
+      basesText ? basesText.slice(0, 200000) : null, ai?.resumen || null,
+      ai?.titulo_claro?.trim() || null,
+      ai?.explicacion ? JSON.stringify(ai.explicacion) : null,
+      territory.ccaa, territory.province, muni?.name || null,
+      ai?.category || null,
       detail.plazoIndefinido ? 1 : 0, grantId);
 
   if (ai) {
+    // One eligibility row per grant. Enrichment is re-runnable (schema changes, retries),
+    // and a plain INSERT would leave a second row that duplicates the grant in every
+    // LEFT JOIN behind the public list and the panel.
+    db.prepare('DELETE FROM grant_eligibility WHERE grant_id = ?').run(grantId);
     db.prepare(`INSERT INTO grant_eligibility (id, grant_id, entity_types, pop_min, pop_max, territory_scope, funds_what, notes)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
       .run(uuid(), grantId, JSON.stringify(ai.entity_types || []), ai.pop_min ?? null, ai.pop_max ?? null,

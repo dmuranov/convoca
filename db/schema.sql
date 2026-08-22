@@ -33,6 +33,17 @@ CREATE TABLE IF NOT EXISTS grant_row (
   title              TEXT NOT NULL,
   granting_body      TEXT,
   granting_level     TEXT CHECK (granting_level IN ('estatal','autonomico','provincial','local')),
+  -- comunidad autónoma (or 'Toda España'); drives the public territory filter
+  region             TEXT,
+  -- province, when the call is provincial/municipal rather than comunidad-wide.
+  -- ~75% of screened grants are at this level (Diputaciones, ayuntamientos), so
+  -- without it a village sees grants from the wrong province.
+  province           TEXT,
+  -- set only for ayuntamiento-level calls: those are open to that town alone, so they
+  -- must not surface to the rest of the province. Diputación calls stay province-wide.
+  municipality       TEXT,
+  -- set when the poller screened the row out instead of enriching it (never published)
+  skip_reason        TEXT,
   category           TEXT,
   amount_max         REAL,
   budget_total       REAL,
@@ -43,9 +54,15 @@ CREATE TABLE IF NOT EXISTS grant_row (
   deadline_confirmed INTEGER NOT NULL DEFAULT 0,
   is_rolling         INTEGER NOT NULL DEFAULT 0,
   ai_summary         TEXT,
+  -- plain-Spanish headline written by the LLM; `title` keeps the official legal wording
+  plain_title        TEXT,
+  -- JSON: {para_que, quien_puede, que_cubre, que_no_cubre, como_se_pide} — never dates
+  plain_explainer    TEXT,
   raw_text           TEXT,
   source_url         TEXT,
   application_url    TEXT,
+  -- generic tramitación portal (sedeElectronica); never a link to this convocatoria
+  sede_url           TEXT,
   status             TEXT NOT NULL DEFAULT 'ANNOUNCED' CHECK (status IN ('ANNOUNCED','OPEN','CLOSED')),
   -- operator review gate: nothing is shown to alcaldes or the public chat until published
   published          INTEGER NOT NULL DEFAULT 0,

@@ -91,6 +91,42 @@ h1 { font-size: 2rem; line-height: 1.15; }
 .grant-card h4 { margin: .5rem 0 .4rem; font-size: 1.02rem; line-height: 1.3; }
 .grant-card .desc { color: var(--muted); font-size: .88rem; margin: 0 0 .7rem; }
 .grant-card .spacer { flex: 1; }
+/* small print: official legal title, provenance note, secondary links */
+.grant-card .official { color: var(--muted); font-size: .74rem; line-height: 1.35; margin: .55rem 0 0; }
+.grant-card .official.links { text-align: center; }
+.grant-card .official a { color: var(--muted); }
+.explain-btn { margin: .2rem 0 .5rem; }
+.explainer {
+  background: var(--accent-soft); border-radius: 10px;
+  padding: .8rem .9rem; margin: 0 0 .7rem; font-size: .87rem; line-height: 1.5;
+}
+.explainer p { margin: 0 0 .65rem; }
+.explainer p:last-child { margin-bottom: 0; }
+.explainer strong { color: var(--accent-dark); }
+.region-filter {
+  display: flex; flex-wrap: wrap; align-items: center; gap: .5rem;
+  justify-content: center; margin: 0 0 1rem;
+}
+.region-filter label { font-weight: 600; font-size: .9rem; }
+.place-box { position: relative; display: inline-block; }
+.place-box input {
+  background: var(--card); border: 1px solid var(--line); border-radius: 999px;
+  padding: .45rem 1rem; font: inherit; font-size: .9rem; width: 17rem; max-width: 100%;
+}
+.place-menu {
+  position: absolute; z-index: 20; left: 0; right: 0; top: calc(100% + .3rem);
+  background: var(--card); border: 1px solid var(--line); border-radius: 12px;
+  box-shadow: var(--shadow); overflow: hidden; text-align: left;
+}
+.place-menu button {
+  display: flex; justify-content: space-between; gap: .6rem; align-items: baseline;
+  width: 100%; background: none; border: 0; text-align: left; font: inherit;
+  padding: .5rem .9rem; cursor: pointer;
+}
+.place-menu button:hover { background: var(--accent-soft); }
+.place-menu .muted { font-size: .78rem; }
+.place-empty { padding: .6rem .9rem; font-size: .85rem; color: var(--muted); }
+.region-filter .muted { flex-basis: 100%; text-align: center; font-size: .78rem; }
 .filter-chips { display: flex; flex-wrap: wrap; gap: .45rem; justify-content: center; margin: 0 0 1.4rem; }
 .filter-chips button {
   background: var(--card); border: 1px solid var(--line); border-radius: 999px;
