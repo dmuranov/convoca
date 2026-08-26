@@ -194,6 +194,20 @@ function render() {
         Ante cualquier duda manda la convocatoria oficial.</p>
       </div>` : '';
 
+    // "¿Qué papeles necesito?" panel: document checklist, same collapsed-until-asked pattern.
+    let checklist = null;
+    try { checklist = g.plain_checklist ? JSON.parse(g.plain_checklist) : null; } catch { checklist = null; }
+    const papeles = checklist && checklist.length ? `
+      <button class="btn ghost block papeles-btn" type="button" aria-expanded="false" aria-controls="pp-${i}">
+        ¿Qué papeles necesito?
+      </button>
+      <div class="explainer" id="pp-${i}" hidden>
+        ${checklist.map(d => `<p><strong>${esc(d.documento)}</strong><br>${esc(d.para_que_sirve)}<br>
+          <em>Dónde: ${esc(d.donde_conseguirlo)}</em></p>`).join('')}
+        <p class="official">Lista redactada automáticamente a partir de las bases oficiales.
+        Ante cualquier duda manda la convocatoria oficial.</p>
+      </div>` : '';
+
     // BDNS is the only link guaranteed to point at THIS convocatoria. `sede_url` is the
     // organism's generic portal and `application_url` the (often years-older) bases
     // reguladoras, so both are secondary and clearly labelled as what they are.
@@ -213,6 +227,7 @@ function render() {
       </div>
       <div style="margin:.3rem 0 .8rem">${g.category ? `<span class="tag">${esc(g.category)}</span>` : ''}${funds ? `<span class="tag">${esc(funds)}</span>` : ''}</div>
       ${explainer}
+      ${papeles}
       <div class="spacer"></div>
       <a class="btn block" target="_blank" rel="noopener" href="${esc(g.source_url)}">Ver convocatoria oficial →</a>
       ${extras ? `<p class="official links">${extras}</p>` : ''}
@@ -277,14 +292,20 @@ document.addEventListener('click', (ev) => {
 });
 
 // Delegated so it survives every re-render (category filtering rebuilds the grid).
+// Same toggle pattern for both collapsible panels: "en cristiano" explainer and the
+// "¿qué papeles necesito?" checklist.
 document.getElementById('grid').addEventListener('click', (ev) => {
-  const btn = ev.target.closest('.explain-btn');
+  const btn = ev.target.closest('.explain-btn, .papeles-btn');
   if (!btn) return;
+  const isPapeles = btn.classList.contains('papeles-btn');
+  const labels = isPapeles
+    ? ['¿Qué papeles necesito?', 'Ocultar papeles']
+    : ['Explícamelo en cristiano', 'Ocultar explicación'];
   const panel = document.getElementById(btn.getAttribute('aria-controls'));
   const open = panel.hidden;
   panel.hidden = !open;
   btn.setAttribute('aria-expanded', String(open));
-  btn.textContent = open ? 'Ocultar explicación' : 'Explícamelo en cristiano';
+  btn.textContent = open ? labels[1] : labels[0];
 });
 
 (async () => {

@@ -58,6 +58,16 @@ CREATE TABLE IF NOT EXISTS grant_row (
   plain_title        TEXT,
   -- JSON: {para_que, quien_puede, que_cubre, que_no_cubre, como_se_pide} — never dates
   plain_explainer    TEXT,
+  -- JSON: [{documento, para_que_sirve, donde_conseguirlo}] — "¿Qué papeles necesito?"
+  -- panel on the public card. Same rule as plain_explainer: never dates.
+  plain_checklist    TEXT,
+  -- set when status transitions OPEN -> CLOSED (deadline sweep or ingest-time). Status
+  -- alone can't tell you *when* it closed, which the archive sweep needs.
+  closed_at          TEXT,
+  -- set by the daily sweep once closed_at is >24h old. Archived rows stay CLOSED and
+  -- keep their data (never deleted) - this is bookkeeping, not visibility: the public
+  -- list already excludes anything that isn't status='OPEN'.
+  archived_at        TEXT,
   raw_text           TEXT,
   source_url         TEXT,
   application_url    TEXT,

@@ -46,7 +46,7 @@ const PRICES = {
 };
 
 function selectRows() {
-  const where = has('--all') ? '' : 'WHERE plain_title IS NULL OR plain_explainer IS NULL';
+  const where = has('--all') ? '' : 'WHERE plain_title IS NULL OR plain_explainer IS NULL OR plain_checklist IS NULL';
   return db.prepare(`SELECT id, bdns_ref, title, granting_body, raw_text
     FROM grant_row ${where} ORDER BY created_at DESC`).all();
 }
@@ -139,10 +139,12 @@ function applyResult(grantId, ai) {
       ai_summary = COALESCE(?, ai_summary),
       plain_title = COALESCE(?, plain_title),
       plain_explainer = COALESCE(?, plain_explainer),
+      plain_checklist = COALESCE(?, plain_checklist),
       category = COALESCE(?, category)
     WHERE id = ?`)
     .run(ai.resumen || null, ai.titulo_claro?.trim() || null,
       ai.explicacion ? JSON.stringify(ai.explicacion) : null,
+      ai.documentos_necesarios ? JSON.stringify(ai.documentos_necesarios) : null,
       ai.category || null, grantId);
 
   // One eligibility row per grant - a plain INSERT would duplicate the grant in every

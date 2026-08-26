@@ -78,7 +78,7 @@ publicRouter.get('/api/grants', (req, res) => {
   const rows = db.prepare(`
     SELECT g.bdns_ref, g.title, g.plain_title, g.granting_body, g.granting_level,
            g.region, g.province, g.municipality, g.category,
-           g.ai_summary, g.plain_explainer, g.amount_max, g.budget_total,
+           g.ai_summary, g.plain_explainer, g.plain_checklist, g.amount_max, g.budget_total,
            g.source_url, g.application_url, g.sede_url, g.is_rolling,
            g.deadline_date AS deadline,
            CASE WHEN g.deadline_source = 'computed' AND g.deadline_confirmed = 0

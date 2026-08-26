@@ -85,14 +85,32 @@ if (process.env.NODE_ENV === 'production') {
   }, { timezone: 'Europe/Madrid' });
 }
 
-// prune expired sessions daily, and enforce the contact-form retention rule promised
-// under the form itself -- a retention line nobody implements is worse than none.
+// prune expired sessions daily, enforce the contact-form retention rule promised under
+// the form itself, close grants whose deadline has passed, and archive grants that have
+// sat CLOSED for >24h. Nothing here is deleted except sessions/contact_message per their
+// own retention rules - closed/archived grants keep all their data, only status/timestamps
+// change, since the public list already hides anything that isn't status='OPEN'.
 cron.schedule('30 4 * * *', () => {
   db.prepare('DELETE FROM session WHERE expires_at < ?').run(new Date().toISOString());
   const cutoff = new Date(Date.now() - CONTACT_RETENTION_DAYS * 86400_000)
     .toISOString().slice(0, 19).replace('T', ' ');
   const { changes } = db.prepare('DELETE FROM contact_message WHERE received_at < ?').run(cutoff);
   if (changes) console.log(`pruned ${changes} contact message(s) older than ${CONTACT_RETENTION_DAYS} days`);
+
+  const today = new Date().toISOString().slice(0, 10);
+  const nowIso = new Date().toISOString();
+  const closed = db.prepare(`
+    UPDATE grant_row SET status = 'CLOSED', closed_at = ?
+    WHERE status = 'OPEN' AND deadline_date IS NOT NULL AND deadline_date < ?
+  `).run(nowIso, today);
+  if (closed.changes) console.log(`closed ${closed.changes} grant(s) past their deadline`);
+
+  const dayAgo = new Date(Date.now() - 24 * 3600_000).toISOString();
+  const archived = db.prepare(`
+    UPDATE grant_row SET archived_at = ?
+    WHERE status = 'CLOSED' AND archived_at IS NULL AND closed_at IS NOT NULL AND closed_at < ?
+  `).run(nowIso, dayAgo);
+  if (archived.changes) console.log(`archived ${archived.changes} grant(s) closed >24h ago`);
 });
 
 const PORT = process.env.PORT || 3003;

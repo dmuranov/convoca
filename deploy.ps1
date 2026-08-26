@@ -1,7 +1,7 @@
 # Deploy Convoca to the shared Azure VM (co-hosted with testpilot:3001 and mocount:3002).
 # NEVER run box-wide pm2 commands (pm2 kill / delete all) — mocount lives on this box too.
 $ErrorActionPreference = "Stop"
-$KEY = "C:\Users\danij\testpilot\Azure key\testpilot-vm_key.pem"
+$KEY = "C:\Users\danij\.ssh\testpilot_vm"
 $VM = "azureuser@51.145.161.85"
 $DEST = "/home/azureuser/convoca"
 

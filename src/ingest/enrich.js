@@ -41,7 +41,7 @@ export function parsePlazoTerm(text) {
 export const ELIGIBILITY_SCHEMA = {
   type: 'object',
   additionalProperties: false,
-  required: ['titulo_claro', 'resumen', 'explicacion', 'entity_types', 'funds_what', 'territory_scope', 'pop_min', 'pop_max', 'category'],
+  required: ['titulo_claro', 'resumen', 'explicacion', 'documentos_necesarios', 'entity_types', 'funds_what', 'territory_scope', 'pop_min', 'pop_max', 'category'],
   properties: {
     titulo_claro: { type: 'string', description: 'Titular en castellano llano de MENOS de 80 caracteres que diga para qué sirve la ayuda, como se lo explicarías a un vecino. Nada de "Orden de 14 de agosto de 2026, de la Consejería de...". Ejemplo: "Ayudas para inscribir ganado de razas autóctonas en el libro genealógico". Sin fechas.' },
     resumen: { type: 'string', description: 'Resumen en castellano llano, 2-4 frases: qué paga, para quién, cuánto. NUNCA menciones plazos ni fechas límite.' },
@@ -56,6 +56,20 @@ export const ELIGIBILITY_SCHEMA = {
         que_cubre: { type: 'string', description: '1-3 frases: qué gastos paga y cuánto dinero se puede recibir. Si hay que poner dinero propio (cofinanciación), dilo.' },
         que_no_cubre: { type: 'string', description: '1-2 frases: exclusiones o gastos que NO entran. Si las bases no lo dicen, escribe exactamente "No se especifica en las bases."' },
         como_se_pide: { type: 'string', description: '1-2 frases: cómo se solicita (sede electrónica, papel, qué documentación básica). Sin fechas. Si no consta, escribe exactamente "No se especifica en las bases."' },
+      },
+    },
+    documentos_necesarios: {
+      type: 'array',
+      description: 'Checklist de "¿qué papeles necesito?" para pedirla: solo documentos que las bases mencionen explícitamente. Si las bases no detallan documentación, devuelve un array vacío - no inventes trámites genéricos. Prohibido mencionar plazos o fechas.',
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['documento', 'para_que_sirve', 'donde_conseguirlo'],
+        properties: {
+          documento: { type: 'string', description: 'Nombre del documento tal como lo entendería un vecino, p.ej. "Certificado de estar al corriente con Hacienda".' },
+          para_que_sirve: { type: 'string', description: '1 frase: por qué lo piden.' },
+          donde_conseguirlo: { type: 'string', description: '1 frase: dónde o cómo se consigue (p.ej. "Sede electrónica de la Agencia Tributaria", "Ayuntamiento", "Ya lo tiene la entidad si está al día"). Si no consta, escribe exactamente "No se especifica en las bases."' },
+        },
       },
     },
     entity_types: { type: 'array', items: { type: 'string', enum: ['Ayuntamiento', 'Junta_Vecinal', 'Asociacion', 'Club_Deportivo', 'AMPA', 'Otro'] } },
@@ -119,6 +133,9 @@ export async function enrichGrant(grantId, bdnsRef, { detail: pre } = {}) {
   const today = new Date().toISOString().slice(0, 10);
   const status = detail.abierto || (deadline && deadline >= today) ? 'OPEN'
     : (deadline && deadline < today) ? 'CLOSED' : 'ANNOUNCED';
+  // A grant can arrive already past its deadline (late discovery) - stamp closed_at now
+  // so the archive sweep in server.js still picks it up 24h later instead of never.
+  const closedAt = status === 'CLOSED' ? new Date().toISOString() : null;
 
   // -- bases PDF text --
   let basesText = null;
@@ -163,20 +180,24 @@ export async function enrichGrant(grantId, bdnsRef, { detail: pre } = {}) {
 
   db.prepare(`UPDATE grant_row SET
       deadline_date = ?, deadline_source = ?, deadline_confirmed = ?, status = ?,
+      -- re-enrichment (scripts/reenrich.js) must not push closed_at forward each run
+      closed_at = COALESCE(closed_at, ?),
       budget_total = ?, application_url = COALESCE(?, application_url),
       sede_url = COALESCE(?, sede_url),
       raw_text = ?, ai_summary = ?, plain_title = COALESCE(?, plain_title),
       plain_explainer = COALESCE(?, plain_explainer),
+      plain_checklist = COALESCE(?, plain_checklist),
       region = COALESCE(?, region), province = COALESCE(?, province),
       municipality = COALESCE(?, municipality),
       category = COALESCE(?, category), is_rolling = ?
     WHERE id = ?`)
-    .run(deadline, source, confirmed, status,
+    .run(deadline, source, confirmed, status, closedAt,
       detail.presupuestoTotal ?? null,
       cleanUrl(detail.urlBasesReguladoras), cleanUrl(detail.sedeElectronica),
       basesText ? basesText.slice(0, 200000) : null, ai?.resumen || null,
       ai?.titulo_claro?.trim() || null,
       ai?.explicacion ? JSON.stringify(ai.explicacion) : null,
+      ai?.documentos_necesarios ? JSON.stringify(ai.documentos_necesarios) : null,
       territory.ccaa, territory.province, muni?.name || null,
       ai?.category || null,
       detail.plazoIndefinido ? 1 : 0, grantId);
