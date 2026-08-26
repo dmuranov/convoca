@@ -177,12 +177,12 @@ function render() {
     const official = g.plain_title && g.title !== g.plain_title
       ? `<p class="official">Título oficial: ${esc(g.title)}</p>` : '';
 
-    // "En cristiano" panel: the dumbed-down explainer, collapsed until asked for.
+    // "Explícamelo fácil" panel: the dumbed-down explainer, collapsed until asked for.
     let ex = null;
     try { ex = g.plain_explainer ? JSON.parse(g.plain_explainer) : null; } catch { ex = null; }
     const explainer = ex ? `
       <button class="btn ghost block explain-btn" type="button" aria-expanded="false" aria-controls="ex-${i}">
-        Explícamelo en cristiano
+        Explícamelo fácil
       </button>
       <div class="explainer" id="ex-${i}" hidden>
         ${[['¿Para qué es?', ex.para_que], ['¿Quién puede pedirla?', ex.quien_puede],
@@ -292,7 +292,7 @@ document.addEventListener('click', (ev) => {
 });
 
 // Delegated so it survives every re-render (category filtering rebuilds the grid).
-// Same toggle pattern for both collapsible panels: "en cristiano" explainer and the
+// Same toggle pattern for both collapsible panels: the "explícamelo fácil" explainer and the
 // "¿qué papeles necesito?" checklist.
 document.getElementById('grid').addEventListener('click', (ev) => {
   const btn = ev.target.closest('.explain-btn, .papeles-btn');
@@ -300,7 +300,7 @@ document.getElementById('grid').addEventListener('click', (ev) => {
   const isPapeles = btn.classList.contains('papeles-btn');
   const labels = isPapeles
     ? ['¿Qué papeles necesito?', 'Ocultar papeles']
-    : ['Explícamelo en cristiano', 'Ocultar explicación'];
+    : ['Explícamelo fácil', 'Ocultar explicación'];
   const panel = document.getElementById(btn.getAttribute('aria-controls'));
   const open = panel.hidden;
   panel.hidden = !open;

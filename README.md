@@ -49,7 +49,7 @@ LLM extract also writes, per convocatoria:
 - `plain_title` — a <80-char headline in plain Spanish; the card leads with it and keeps the
   official wording as small print. `title` always retains the untouched BDNS text.
 - `plain_explainer` — JSON `{para_que, quien_puede, que_cubre, que_no_cubre, como_se_pide}`,
-  rendered behind the card's *"Explícamelo en cristiano"* toggle.
+  rendered behind the card's *"Explícamelo fácil"* toggle.
 
 Both are subject to the deadline rule below: the extraction prompt forbids dates in every field.
 
