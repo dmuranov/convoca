@@ -77,13 +77,17 @@ operatorRouter.post('/api/op/grants/publish-batch', (req, res) => {
   res.json({ ok: true, published, skipped: ids.length - published, estimated_deadlines: estimated });
 });
 
-// Builds the "papers needed" line from plain_checklist. Empty/missing checklist
+// Builds the "papers needed" line from plain_checklist. Each item is an
+// object ({ documento, para_que_sirve, donde_conseguirlo } - see
+// src/ingest/enrich.js's documentos_necesarios schema), not a plain string -
+// a WhatsApp message just needs the document names. Empty/missing checklist
 // (bases didn't detail documentation) reads as "sin requisitos detallados en
 // las bases" rather than an empty or misleading placeholder.
 function checklistText(grant) {
   let items = [];
   try { items = JSON.parse(grant.plain_checklist || '[]'); } catch { /* leave empty */ }
-  return Array.isArray(items) && items.length ? items.join(', ') : 'sin requisitos detallados en las bases';
+  const names = Array.isArray(items) ? items.map((i) => i?.documento).filter(Boolean) : [];
+  return names.length ? names.join(', ') : 'sin requisitos detallados en las bases';
 }
 
 function paraQue(grant) {
