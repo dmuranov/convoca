@@ -83,16 +83,42 @@ operatorRouter.post('/api/op/grants/publish-batch', (req, res) => {
 // a WhatsApp message just needs the document names. Empty/missing checklist
 // (bases didn't detail documentation) reads as "sin requisitos detallados en
 // las bases" rather than an empty or misleading placeholder.
-function checklistText(grant) {
+function checklistNames(grant) {
   let items = [];
   try { items = JSON.parse(grant.plain_checklist || '[]'); } catch { /* leave empty */ }
   const names = Array.isArray(items) ? items.map((i) => i?.documento).filter(Boolean) : [];
   return names.length ? names.join(', ') : 'sin requisitos detallados en las bases';
 }
 
-function paraQue(grant) {
-  try { return JSON.parse(grant.plain_explainer || '{}')?.para_que || grant.title; }
-  catch { return grant.title; }
+function explainerFields(grant) {
+  try { return JSON.parse(grant.plain_explainer || '{}') || {}; }
+  catch { return {}; }
+}
+
+// {{1}} - what it is, plus the two facts a reader needs before anything
+// else: how much, and by when.
+function whatsappBasicInfo(grant) {
+  const titulo = grant.plain_title || grant.title;
+  const plazo = grant.ok_deadline ? `hasta ${grant.ok_deadline}`
+    : grant.est_deadline ? `hasta ${grant.est_deadline} aprox.`
+    : 'plazo por confirmar';
+  const cuantia = grant.amount_max ? `hasta ${grant.amount_max.toLocaleString('es-ES')}€`
+    : (grant.budget_total ? `bolsa de ${grant.budget_total.toLocaleString('es-ES')}€` : 's/cuantía');
+  return `${titulo} (${cuantia}, ${plazo})`;
+}
+
+// {{2}} - what it's for, plus what the money can actually be spent on.
+function whatsappExplanation(grant) {
+  const ex = explainerFields(grant);
+  const paraQue = ex.para_que || grant.title;
+  return ex.que_cubre ? `${paraQue} ${ex.que_cubre}` : paraQue;
+}
+
+// {{3}} - papers needed, plus the call to action, together since this
+// template's fixed text is just three bare paragraphs (see the "Content"
+// this maps to in the approved WhatsApp template).
+function whatsappChecklistAndCta(grant) {
+  return `📋 Papeles necesarios: ${checklistNames(grant)}\n\n¿Te interesa? Responde SÍ o NO.`;
 }
 
 // Surface a grant to an entity => notification row, and either an actual
@@ -115,34 +141,32 @@ operatorRouter.post('/api/op/grants/:id/notify', async (req, res) => {
     : g.est_deadline ? `hasta ${g.est_deadline} aprox. (fecha estimada, confírmala en las bases)`
     : 'plazo por confirmar';
   const cuantia = g.amount_max ? `hasta ${g.amount_max.toLocaleString('es-ES')}€` : (g.budget_total ? `bolsa de ${g.budget_total.toLocaleString('es-ES')}€` : 's/cuantía');
-  const titulo = g.plain_title || g.title;
-  const explicacion = paraQue(g);
-  const checklist = checklistText(g);
 
   if (channel === 'whatsapp') {
+    const basicInfo = whatsappBasicInfo(g);
+    const explanation = whatsappExplanation(g);
+    const checklistAndCta = whatsappChecklistAndCta(g);
+    const draft = `${basicInfo}\n\n${explanation}\n\n${checklistAndCta}`;
+
     const template = process.env.INFOBIP_WHATSAPP_TEMPLATE_GRANT;
     if (template && e.contact_phone) {
       const result = await sendWhatsAppTemplate({
         toPhone: e.contact_phone,
         templateName: template,
-        placeholders: [titulo, explicacion, checklist],
+        placeholders: [basicInfo, explanation, checklistAndCta],
       });
       if (!result.ok) alert('whatsapp_send', `notify grant ${g.id} -> entity ${e.id} failed: ${result.error || result.status}`);
       return res.json({
         ok: true,
         whatsapp_sent: result.ok,
         whatsapp_error: result.ok ? null : (result.error || `HTTP ${result.status}`),
-        whatsapp_draft: `${titulo}\n\n${explicacion}\n\nPapeles: ${checklist}\n\n¿Te interesa? Responde SÍ o NO.`,
+        whatsapp_draft: draft,
       });
     }
     // Not configured yet (no template approved, or no phone on file) - same
     // manual-copy fallback as before, just built from the plain-language
     // fields instead of the raw AI summary.
-    return res.json({
-      ok: true,
-      whatsapp_sent: false,
-      whatsapp_draft: `${titulo}\n\n${explicacion}\n\nPapeles: ${checklist}\n\n¿Te interesa? Responde SÍ o NO.`,
-    });
+    return res.json({ ok: true, whatsapp_sent: false, whatsapp_draft: draft });
   }
 
   res.json({
