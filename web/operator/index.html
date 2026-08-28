@@ -41,6 +41,11 @@
     <div id="metrics" class="muted">cargando…</div>
   </div>
 
+  <div class="card" id="notifications-card" hidden>
+    <h3>Respuestas de alcaldes</h3>
+    <div id="notifications"></div>
+  </div>
+
   <div class="card">
     <h3>Convocatorias <label style="font-weight:400"><input type="checkbox" id="pendingonly" checked style="width:auto"> solo pendientes</label></h3>
     <p id="bulk-bar" style="font-size:.9rem; display:flex; gap:.6rem; align-items:center; flex-wrap:wrap">
@@ -198,10 +203,30 @@ async function candidates(id) {
 async function notify(gid, eid, channel) {
   const r = await post(`/api/op/grants/${gid}/notify`, { entity_id: eid, channel });
   if (r.error) return alert(r.error);
-  $('cand-' + gid).insertAdjacentHTML('beforeend', channel === 'whatsapp'
-    ? `<pre class="draft">${r.whatsapp_draft}</pre>`
-    : `<pre class="draft">Asunto: ${r.email_subject}\n\n${r.email_body}</pre>`);
-  loadMetrics();
+  if (channel === 'whatsapp' && r.whatsapp_sent) {
+    $('cand-' + gid).insertAdjacentHTML('beforeend', `<p class="ok">Enviado por WhatsApp ✔</p>`);
+  } else if (channel === 'whatsapp' && r.whatsapp_error) {
+    $('cand-' + gid).insertAdjacentHTML('beforeend',
+      `<p class="error">Fallo al enviar (${esc(r.whatsapp_error)}) - copia manual abajo:</p><pre class="draft">${esc(r.whatsapp_draft)}</pre>`);
+  } else {
+    $('cand-' + gid).insertAdjacentHTML('beforeend', channel === 'whatsapp'
+      ? `<pre class="draft">${esc(r.whatsapp_draft)}</pre>`
+      : `<pre class="draft">Asunto: ${esc(r.email_subject)}\n\n${esc(r.email_body)}</pre>`);
+  }
+  loadMetrics(); loadNotifications();
+}
+
+async function loadNotifications() {
+  const rows = await j('/api/op/notifications');
+  $('notifications-card').hidden = !rows.length;
+  $('notifications').innerHTML = rows.length ? '<table>' + rows.map((n) => {
+    const tag = n.response === 'interesado' ? '<span class="ok">interesado</span>'
+      : n.response === 'no' ? '<span class="muted">no interesa</span>'
+      : '<span class="tag warn">sin respuesta</span>';
+    return `<tr><td class="muted">${(n.responded_at || n.sent_at).slice(0, 16)}</td>
+      <td><strong>${esc(n.municipality)}</strong> · ${esc(n.entity_name)}</td>
+      <td>${esc(n.grant_title)}</td><td>${esc(n.channel)}</td><td>${tag}</td></tr>`;
+  }).join('') + '</table>' : '';
 }
 
 async function loadRequests() {
@@ -255,7 +280,7 @@ $('pollnow').addEventListener('click', async () => {
 $('pendingonly').addEventListener('change', loadGrants);
 $('out').addEventListener('click', async () => { await fetch('/api/logout', { method: 'POST' }); location.href = '/'; });
 
-loadAlerts(); loadContact(); loadMetrics(); loadGrants(); loadRequests(); loadInvites();
+loadAlerts(); loadContact(); loadMetrics(); loadGrants(); loadRequests(); loadInvites(); loadNotifications();
 </script>
 </body>
 </html>

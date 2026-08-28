@@ -4,6 +4,8 @@ import { db, uuid } from '../db.js';
 import { requireAuth, createInvite } from '../auth.js';
 import { candidateEntities } from '../ingest/match.js';
 import { pollOnce } from '../ingest/poll.js';
+import { sendWhatsAppTemplate } from '../whatsapp.js';
+import { alert } from '../ingest/bdns.js';
 
 export const operatorRouter = Router();
 operatorRouter.use('/api/op', requireAuth('operator'));
@@ -75,8 +77,25 @@ operatorRouter.post('/api/op/grants/publish-batch', (req, res) => {
   res.json({ ok: true, published, skipped: ids.length - published, estimated_deadlines: estimated });
 });
 
-// Surface a grant to an entity => notification row + draft texts to copy-paste (manual send in V1).
-operatorRouter.post('/api/op/grants/:id/notify', (req, res) => {
+// Builds the "papers needed" line from plain_checklist. Empty/missing checklist
+// (bases didn't detail documentation) reads as "sin requisitos detallados en
+// las bases" rather than an empty or misleading placeholder.
+function checklistText(grant) {
+  let items = [];
+  try { items = JSON.parse(grant.plain_checklist || '[]'); } catch { /* leave empty */ }
+  return Array.isArray(items) && items.length ? items.join(', ') : 'sin requisitos detallados en las bases';
+}
+
+function paraQue(grant) {
+  try { return JSON.parse(grant.plain_explainer || '{}')?.para_que || grant.title; }
+  catch { return grant.title; }
+}
+
+// Surface a grant to an entity => notification row, and either an actual
+// WhatsApp send (once INFOBIP_FROM + a template name are configured) or the
+// same manual copy-paste draft this shipped with in V1, as a fallback while
+// that's still pending approval.
+operatorRouter.post('/api/op/grants/:id/notify', async (req, res) => {
   const { entity_id, channel } = req.body || {};
   if (!['whatsapp', 'email', 'web'].includes(channel)) return res.status(400).json({ error: 'canal inválido' });
   const g = db.prepare(`SELECT g.*,
@@ -92,12 +111,56 @@ operatorRouter.post('/api/op/grants/:id/notify', (req, res) => {
     : g.est_deadline ? `hasta ${g.est_deadline} aprox. (fecha estimada, confírmala en las bases)`
     : 'plazo por confirmar';
   const cuantia = g.amount_max ? `hasta ${g.amount_max.toLocaleString('es-ES')}€` : (g.budget_total ? `bolsa de ${g.budget_total.toLocaleString('es-ES')}€` : 's/cuantía');
+  const titulo = g.plain_title || g.title;
+  const explicacion = paraQue(g);
+  const checklist = checklistText(g);
+
+  if (channel === 'whatsapp') {
+    const template = process.env.INFOBIP_WHATSAPP_TEMPLATE_GRANT;
+    if (template && e.contact_phone) {
+      const result = await sendWhatsAppTemplate({
+        toPhone: e.contact_phone,
+        templateName: template,
+        placeholders: [titulo, explicacion, checklist],
+      });
+      if (!result.ok) alert('whatsapp_send', `notify grant ${g.id} -> entity ${e.id} failed: ${result.error || result.status}`);
+      return res.json({
+        ok: true,
+        whatsapp_sent: result.ok,
+        whatsapp_error: result.ok ? null : (result.error || `HTTP ${result.status}`),
+        whatsapp_draft: `${titulo}\n\n${explicacion}\n\nPapeles: ${checklist}\n\n¿Te interesa? Responde SÍ o NO.`,
+      });
+    }
+    // Not configured yet (no template approved, or no phone on file) - same
+    // manual-copy fallback as before, just built from the plain-language
+    // fields instead of the raw AI summary.
+    return res.json({
+      ok: true,
+      whatsapp_sent: false,
+      whatsapp_draft: `${titulo}\n\n${explicacion}\n\nPapeles: ${checklist}\n\n¿Te interesa? Responde SÍ o NO.`,
+    });
+  }
+
   res.json({
     ok: true,
-    whatsapp_draft: `${g.ai_summary?.split(/\.\s/)[0] || g.title}. ${cuantia}, ${plazo}. ¿Te interesa? (sí/no)`,
     email_subject: `${e.muni} · ${g.category || 'subvención'} · ${cuantia} · ${plazo}`,
     email_body: `${g.ai_summary || g.title}\n\nMás información: ${g.source_url || ''}\n\n¿Interesa presentarla? Respóndeme a este correo con sí o no.`,
   });
+});
+
+// Recent notifications with their reply status, for the "Respuestas" panel -
+// the whole point of the inbound webhook (src/routes/webhooks.js): an
+// alcalde's WhatsApp reply has to be visible somewhere.
+operatorRouter.get('/api/op/notifications', (req, res) => {
+  res.json(db.prepare(`
+    SELECT n.id, n.channel, n.response, n.sent_at, n.responded_at,
+           COALESCE(g.plain_title, g.title) AS grant_title,
+           e.name AS entity_name, m.name AS municipality
+    FROM notification n
+    JOIN grant_row g ON g.id = n.grant_id
+    JOIN entity e ON e.id = n.entity_id
+    JOIN municipality m ON m.id = e.municipality_id
+    ORDER BY n.sent_at DESC LIMIT 200`).all());
 });
 
 // ---- requests queue (demand signal) ----

@@ -7,6 +7,7 @@ import { db } from './src/db.js';
 import { publicRouter, CONTACT_RETENTION_DAYS } from './src/routes/public.js';
 import { panelRouter } from './src/routes/panel.js';
 import { operatorRouter } from './src/routes/operator.js';
+import { webhooksRouter } from './src/routes/webhooks.js';
 import { login, logout, loginThrottled, redeemInvite, sessionUser,
          setSessionCookie, clearSessionCookie, seedOperator } from './src/auth.js';
 import { pollOnce } from './src/ingest/poll.js';
@@ -64,6 +65,7 @@ app.get('/api/invite/:token', (req, res) => {
 app.use(publicRouter);
 app.use(panelRouter);
 app.use(operatorRouter);
+app.use(webhooksRouter);
 
 // ---- pages ----
 const web = (f) => path.join(__dirname, 'web', f);
