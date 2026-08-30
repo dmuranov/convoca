@@ -13,6 +13,7 @@
 // header note there.
 import { XMLParser } from 'fast-xml-parser';
 import { alert } from './bdns.js';
+import { CCAA } from './regions.js';
 
 export const FEED_URL = 'https://contrataciondelestado.es/sindicacion/sindicacion_643/licitacionesPerfilesContratanteCompleto3.atom';
 const HEADERS = { 'User-Agent': 'convoca/1.0 (plazoabierto.es)' };
@@ -155,6 +156,7 @@ function parseEntry(entry) {
       : totalAmount === taxExclusive ? 'excluido' : 'no_consta',
     fechaLimite: deadline?.EndDate ? text(deadline.EndDate) : null,
     lugar: text(loc.CountrySubentity) || null,
+    ccaa: ccaaFromNuts(text(loc.CountrySubentityCode)),
     duracion: duration ? `${text(duration)} ${DURATION_UNIT[duration['@_unitCode']] || duration['@_unitCode'] || ''}`.trim() : null,
     numLotes: arr(cfs.ProcurementProjectLot).length,
     pliegos,
@@ -163,6 +165,16 @@ function parseEntry(entry) {
 }
 
 const DURATION_UNIT = { DAY: 'días', WEE: 'semanas', MON: 'meses', ANN: 'años' };
+
+// NUTS3 (province, 5 chars, e.g. ES120) and NUTS2 (comunidad-only, 4 chars, e.g. ES30)
+// both roll up to comunidad by truncating to 4 - same rule and the same CCAA table
+// regions.js already uses for BDNS, so a licitación and a grant never disagree about
+// what "Asturias" or "Andalucía" means. A NUTS1 code (3 chars, e.g. ES3 - a macro-region
+// spanning several comunidades) or a missing code has no single comunidad to report.
+function ccaaFromNuts(code) {
+  if (!code || code.length < 4) return null;
+  return CCAA[code.slice(0, 4)] || null;
+}
 
 function num(v) {
   const t = text(v);

@@ -232,6 +232,11 @@ CREATE TABLE IF NOT EXISTS licitacion_row (
   -- literal date from the feed, exactly like grant_row.deadline_date - never computed
   fecha_limite             TEXT,
   lugar                    TEXT,
+  -- derived from the feed's NUTS code (CountrySubentityCode), not from `lugar` text -
+  -- `lugar` mixes province and comunidad names depending on what PLACSP happened to put
+  -- there, which made an early lugar-based filter mix granularities. ccaa is always a
+  -- comunidad name, from the same CCAA table src/ingest/regions.js uses for grants.
+  ccaa                     TEXT,
   duracion                 TEXT,
   num_lotes                INTEGER NOT NULL DEFAULT 0,
   pliegos                  TEXT NOT NULL DEFAULT '[]',        -- JSON [{nombre, url}]

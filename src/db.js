@@ -21,5 +21,9 @@ for (const [name, decl] of [['plain_title', 'TEXT'], ['sede_url', 'TEXT'], ['pla
                             ['closed_at', 'TEXT'], ['archived_at', 'TEXT']]) {
   if (!cols.has(name)) db.exec(`ALTER TABLE grant_row ADD COLUMN ${name} ${decl}`);
 }
+const licCols = new Set(db.prepare('PRAGMA table_info(licitacion_row)').all().map(c => c.name));
+for (const [name, decl] of [['ccaa', 'TEXT']]) {
+  if (!licCols.has(name)) db.exec(`ALTER TABLE licitacion_row ADD COLUMN ${name} ${decl}`);
+}
 
 export const uuid = () => crypto.randomUUID();

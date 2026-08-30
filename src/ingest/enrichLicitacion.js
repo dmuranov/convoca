@@ -194,22 +194,22 @@ export async function prepareEnrichment(lic) {
 
   db.prepare(`INSERT INTO licitacion_row
       (id, expediente, source_url, updated_at, estado, organo, tipo_contrato, procedimiento,
-       cpv, valor_estimado, presupuesto_base, iva, fecha_limite, lugar, duracion, num_lotes,
-       pliegos, raw_text)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       cpv, valor_estimado, presupuesto_base, iva, fecha_limite, lugar, ccaa, duracion,
+       num_lotes, pliegos, raw_text)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(expediente) DO UPDATE SET
       source_url = excluded.source_url, updated_at = excluded.updated_at,
       estado = excluded.estado, organo = excluded.organo,
       tipo_contrato = excluded.tipo_contrato, procedimiento = excluded.procedimiento,
       cpv = excluded.cpv, valor_estimado = excluded.valor_estimado,
       presupuesto_base = excluded.presupuesto_base, iva = excluded.iva,
-      fecha_limite = excluded.fecha_limite, lugar = excluded.lugar,
+      fecha_limite = excluded.fecha_limite, lugar = excluded.lugar, ccaa = excluded.ccaa,
       duracion = excluded.duracion, num_lotes = excluded.num_lotes,
       pliegos = excluded.pliegos, raw_text = excluded.raw_text`)
     .run(id, lic.expediente, lic.sourceUrl, lic.updated, lic.estado, lic.organo,
       lic.tipoContrato, lic.procedimiento, JSON.stringify(lic.cpv), lic.valorEstimado,
-      lic.presupuestoBase, lic.iva, lic.fechaLimite, lic.lugar, lic.duracion, lic.numLotes,
-      JSON.stringify(lic.pliegos), rawText);
+      lic.presupuestoBase, lic.iva, lic.fechaLimite, lic.lugar, lic.ccaa, lic.duracion,
+      lic.numLotes, JSON.stringify(lic.pliegos), rawText);
 
   console.log(`prepared ${lic.expediente}: estado=${lic.estado}, pliegos=${lic.pliegos.length}, rawText=${rawText ? rawText.length + 'ch' : 'none'}`);
   return { id, expediente: lic.expediente, context: extractContext({ ...lic, rawText }) };

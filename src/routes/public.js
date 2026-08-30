@@ -101,7 +101,7 @@ publicRouter.get('/api/grants', (req, res) => {
 publicRouter.get('/api/licitaciones', (req, res) => {
   const rows = db.prepare(`
     SELECT expediente, organo, tipo_contrato, procedimiento, cpv, valor_estimado,
-           presupuesto_base, iva, fecha_limite, lugar, duracion, num_lotes, pliegos,
+           presupuesto_base, iva, fecha_limite, lugar, ccaa, duracion, num_lotes, pliegos,
            source_url, titulo, resumen, quien_puede_interesarle, que_hay_que_hacer,
            requisitos_clave, complejidad, complejidad_motivo
     FROM licitacion_row
@@ -110,13 +110,13 @@ publicRouter.get('/api/licitaciones', (req, res) => {
     LIMIT 400`).all();
   const last = db.prepare('SELECT MAX(created_at) m FROM licitacion_row').get().m;
   const tipos = [...new Set(rows.map(r => r.tipo_contrato).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'es'));
-  // `lugar` is PLACSP's raw CountrySubentity text - a province name for most entries but
-  // a CCAA name for the single-province CCAAs (Asturias, Madrid, Murcia...), because
-  // that's genuinely how the source data is. A clean province/CCAA split like
-  // grants get from regions.js would need the NUTS code (CountrySubentityCode, not
-  // currently stored) - flat unique values is what the data actually supports today.
-  const lugares = [...new Set(rows.map(r => r.lugar).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'es'));
-  res.json({ licitaciones: rows, tipos, lugares, stats: { open: rows.length, updated: last ? last.slice(0, 10) : null } });
+  // Filter on `ccaa` (derived from the feed's NUTS code - see placsp.js's ccaaFromNuts),
+  // not the raw `lugar` text: lugar mixes province and comunidad names depending on what
+  // PLACSP happened to put there, which mixed granularities in an earlier version of this
+  // filter. `lugar` is still returned for display on each card - it's the more specific,
+  // more useful text there, just not a well-formed filter axis on its own.
+  const ccaas = [...new Set(rows.map(r => r.ccaa).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'es'));
+  res.json({ licitaciones: rows, tipos, ccaas, stats: { open: rows.length, updated: last ? last.slice(0, 10) : null } });
 });
 
 function chatContext(place) {
