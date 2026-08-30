@@ -4,6 +4,7 @@ import { db, uuid } from '../db.js';
 import { requireAuth, createInvite } from '../auth.js';
 import { candidateEntities } from '../ingest/match.js';
 import { pollOnce } from '../ingest/poll.js';
+import { pollLicitacionesOnce } from '../ingest/pollLicitaciones.js';
 import { sendWhatsAppTemplate } from '../whatsapp.js';
 import { alert } from '../ingest/bdns.js';
 
@@ -104,6 +105,11 @@ operatorRouter.post('/api/op/licitaciones/publish-batch', (req, res) => {
   const run = db.transaction((list) => list.reduce((n, exp) => n + publish.run(exp).changes, 0));
   const published = run(ids);
   res.json({ ok: true, published, skipped: ids.length - published });
+});
+
+operatorRouter.post('/api/op/licitaciones/poll', async (req, res) => {
+  try { res.json({ ok: true, new: await pollLicitacionesOnce() }); }
+  catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 // Builds the "papers needed" line from plain_checklist. Each item is an

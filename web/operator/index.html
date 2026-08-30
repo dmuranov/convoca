@@ -20,6 +20,7 @@
     <a class="logo" href="/">Plazo<span class="b">Abierto</span>&nbsp;· consola</a>
     <div>
       <button class="btn small" id="pollnow">Sondear BDNS ahora</button>
+      <button class="btn small" id="pollnow-lic">Sondear PLACSP ahora</button>
       <button class="btn ghost small" id="out">Salir</button>
     </div>
   </div>
@@ -53,6 +54,15 @@
       <span class="muted" id="bulk-note"></span>
     </p>
     <div id="grants"></div>
+  </div>
+
+  <div class="card">
+    <h3>Licitaciones (PLACSP) <label style="font-weight:400"><input type="checkbox" id="pendingonly-lic" checked style="width:auto"> solo pendientes</label></h3>
+    <p id="bulk-bar-lic" style="font-size:.9rem; display:flex; gap:.6rem; align-items:center; flex-wrap:wrap">
+      <button class="btn small" id="bulk-publish-lic" type="button">Publicar todas</button>
+      <span class="muted" id="bulk-note-lic"></span>
+    </p>
+    <div id="licitaciones"></div>
   </div>
 
   <div class="card">
@@ -192,6 +202,66 @@ $('bulk-publish').addEventListener('click', async () => {
   alert(`Publicadas ${published}${skipped ? ` (${skipped} omitidas)` : ''}.`);
   loadGrants();
 });
+let LISTED_LIC = [];   // expedientes currently listed, for the bulk publish button
+
+async function loadLicitaciones() {
+  const pending = $('pendingonly-lic').checked;
+  const all = await j('/api/op/licitaciones' + (pending ? '?q=pending' : ''));
+  // Same gate as the publish/publish-batch endpoints: only a summarised, still-open
+  // licitación is publishable - adjudicada/resuelta/anulada rows are historical.
+  LISTED_LIC = all.filter(l => !l.published && l.resumen && l.estado === 'licitacion').map(l => l.expediente);
+  $('bulk-publish-lic').disabled = !LISTED_LIC.length;
+  $('bulk-publish-lic').textContent = LISTED_LIC.length
+    ? `Publicar todas (${LISTED_LIC.length})` : 'Publicar todas';
+  $('bulk-note-lic').textContent = LISTED_LIC.length
+    ? `${LISTED_LIC.length} sin publicar de ${all.length} en la lista`
+    : 'nada publicable en esta lista';
+  $('licitaciones').innerHTML = all.length ? '' : '<p class="muted">Nada pendiente.</p>';
+  for (const l of all) {
+    const d = document.createElement('details');
+    d.className = 'card';
+    const plazoTag = l.fecha_limite ? `<span class="tag">plazo ${l.fecha_limite}</span>` : '<span class="tag warn">sin plazo</span>';
+    d.innerHTML = `<summary>${l.published ? '🟢' : '⚪'} [${l.estado}] ${(l.titulo || l.expediente).slice(0, 110)}</summary>
+      <p class="muted">${l.organo || ''} · exp. ${l.expediente} ·
+        <a href="${l.source_url}" target="_blank" rel="noopener">ficha</a></p>
+      <p>${l.resumen || '<em>sin resumen IA</em>'}</p>
+      <p>${plazoTag} <span class="tag">${l.tipo_contrato || 's/tipo'}</span>
+        <span class="tag">${l.procedimiento || '¿?'}</span>
+        <span class="tag">complejidad: ${l.complejidad || '¿?'}</span>
+        <span class="tag">presupuesto: ${fmt(l.presupuesto_base)}</span></p>
+      <div class="row-actions">
+        <button class="btn small ${l.published ? 'ghost' : ''}" onclick="publishLic('${l.expediente}', ${l.published ? 0 : 1})">
+          ${l.published ? 'despublicar' : 'publicar'}</button>
+      </div>`;
+    $('licitaciones').appendChild(d);
+  }
+}
+async function publishLic(expediente, on) {
+  const r = await post(`/api/op/licitaciones/${expediente}/publish`, { published: !!on });
+  if (r.error) alert(r.error); else loadLicitaciones();
+}
+$('bulk-publish-lic').addEventListener('click', async () => {
+  if (!LISTED_LIC.length) return;
+  if (!confirm(`Publicar ${LISTED_LIC.length} licitaciones en el directorio público. ¿Continuar?`)) return;
+  $('bulk-publish-lic').disabled = true;
+  let published = 0, skipped = 0;
+  for (let i = 0; i < LISTED_LIC.length; i += 500) {
+    const r = await post('/api/op/licitaciones/publish-batch', { ids: LISTED_LIC.slice(i, i + 500) });
+    if (r.error) { alert(r.error); break; }
+    published += r.published; skipped += r.skipped;
+  }
+  alert(`Publicadas ${published}${skipped ? ` (${skipped} omitidas)` : ''}.`);
+  loadLicitaciones();
+});
+$('pendingonly-lic').addEventListener('change', loadLicitaciones);
+$('pollnow-lic').addEventListener('click', async () => {
+  $('pollnow-lic').disabled = true; $('pollnow-lic').textContent = 'sondeando…';
+  const r = await post('/api/op/licitaciones/poll');
+  $('pollnow-lic').disabled = false; $('pollnow-lic').textContent = 'Sondear PLACSP ahora';
+  alert(r.error || `${r.new} licitaciones actualizadas`);
+  loadLicitaciones(); loadAlerts();
+});
+
 async function candidates(id) {
   const c = await j(`/api/op/grants/${id}/candidates`);
   $('cand-' + id).innerHTML = c.length
@@ -280,7 +350,7 @@ $('pollnow').addEventListener('click', async () => {
 $('pendingonly').addEventListener('change', loadGrants);
 $('out').addEventListener('click', async () => { await fetch('/api/logout', { method: 'POST' }); location.href = '/'; });
 
-loadAlerts(); loadContact(); loadMetrics(); loadGrants(); loadRequests(); loadInvites(); loadNotifications();
+loadAlerts(); loadContact(); loadMetrics(); loadGrants(); loadLicitaciones(); loadRequests(); loadInvites(); loadNotifications();
 </script>
 </body>
 </html>
