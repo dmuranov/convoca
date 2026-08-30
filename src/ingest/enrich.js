@@ -99,7 +99,11 @@ export function extractContext(grant, detail, basesText) {
 async function llmExtract(context) {
   const response = await anthropic.messages.create({
     model: MODEL,
-    max_tokens: 2048,
+    // 4096, not 2048: production logged 20 "Unterminated string" truncation failures on
+    // 2026-08-26 from verbose grants running past 2048 mid-JSON (ingest_alert, source
+    // 'backfill'). The schema has five explicacion subfields plus a checklist array -
+    // headroom here is cheap, a silently-dropped grant is not.
+    max_tokens: 4096,
     system: EXTRACT_SYSTEM,
     output_config: { format: { type: 'json_schema', schema: ELIGIBILITY_SCHEMA } },
     messages: [{ role: 'user', content: context }],
@@ -249,7 +253,11 @@ export async function enrichBatch(prepared) {
       custom_id: p.grantId,
       params: {
         model: MODEL,
-        max_tokens: 2048,
+        // 4096, not 2048: production logged 20 "Unterminated string" truncation failures on
+    // 2026-08-26 from verbose grants running past 2048 mid-JSON (ingest_alert, source
+    // 'backfill'). The schema has five explicacion subfields plus a checklist array -
+    // headroom here is cheap, a silently-dropped grant is not.
+    max_tokens: 4096,
         system: EXTRACT_SYSTEM,
         output_config: { format: { type: 'json_schema', schema: ELIGIBILITY_SCHEMA } },
         messages: [{ role: 'user', content: p.context }],

@@ -46,7 +46,11 @@ const PRICES = {
 };
 
 function selectRows() {
-  const where = has('--all') ? '' : 'WHERE plain_title IS NULL OR plain_explainer IS NULL OR plain_checklist IS NULL';
+  // skip_reason IS NULL always applies (even under --all): a screened-out grant was
+  // rejected as not-applicable on purpose and can never be published, so paying to
+  // extract it is pure waste regardless of which rows the caller asked for.
+  const missing = 'plain_title IS NULL OR plain_explainer IS NULL OR plain_checklist IS NULL';
+  const where = has('--all') ? 'WHERE skip_reason IS NULL' : `WHERE (${missing}) AND skip_reason IS NULL`;
   return db.prepare(`SELECT id, bdns_ref, title, granting_body, raw_text
     FROM grant_row ${where} ORDER BY created_at DESC`).all();
 }
@@ -68,7 +72,9 @@ async function buildRequests(rows) {
       custom_id: g.id,
       params: {
         model: MODEL,
-        max_tokens: 2048,
+        // 4096: this exact 2048 cutoff caused the 20 "Unterminated string" failures in
+        // the 2026-08-26 run that this script's own alerts recorded.
+        max_tokens: 4096,
         system: EXTRACT_SYSTEM,
         output_config: { format: { type: 'json_schema', schema: ELIGIBILITY_SCHEMA } },
         messages: [{ role: 'user', content: extractContext(g, detail, g.raw_text) }],
@@ -99,7 +105,7 @@ async function estimate(requests) {
   const [inUsd, outUsd] = PRICES[MODEL] || [0, 0];
   // Upper bound: prices the first row's input across every request and assumes output
   // runs to max_tokens, then halves it for batch.
-  const cost = requests.length * (input_tokens / 1e6 * inUsd + 2048 / 1e6 * outUsd) / 2;
+  const cost = requests.length * (input_tokens / 1e6 * inUsd + 4096 / 1e6 * outUsd) / 2;
   console.log(`~${input_tokens} input tokens on the first request${exact ? '' : ' (estimated)'}; ` +
     `${requests.length} requests on ${MODEL} costs at most about $${cost.toFixed(2)} batched.`);
 }

@@ -151,7 +151,10 @@ export const LICITACION_SCHEMA = {
 async function llmExtract(context) {
   const response = await anthropic.messages.create({
     model: MODEL,
-    max_tokens: 2048,
+    // Matches enrich.js's 4096 (bumped after production truncation failures on the
+    // BDNS side with the same shape of schema) rather than risk the same failure mode
+    // here before it's ever been observed.
+    max_tokens: 4096,
     system: EXTRACT_SYSTEM,
     output_config: { format: { type: 'json_schema', schema: LICITACION_SCHEMA } },
     messages: [{ role: 'user', content: context }],
@@ -248,7 +251,10 @@ export async function enrichBatch(prepared) {
       custom_id: p.expediente,
       params: {
         model: MODEL,
-        max_tokens: 2048,
+        // Matches enrich.js's 4096 (bumped after production truncation failures on the
+    // BDNS side with the same shape of schema) rather than risk the same failure mode
+    // here before it's ever been observed.
+    max_tokens: 4096,
         system: EXTRACT_SYSTEM,
         output_config: { format: { type: 'json_schema', schema: LICITACION_SCHEMA } },
         messages: [{ role: 'user', content: p.context }],

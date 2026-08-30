@@ -23,6 +23,18 @@ header.site .wrap { display: flex; align-items: center; justify-content: space-b
 }
 .hero-mark { height: clamp(110px, 18vw, 170px); width: auto; margin-bottom: .4rem; }
 .logo span.b { color: var(--accent); }
+nav { display: flex; align-items: center; gap: .7rem; }
+
+/* Product switcher (subvenciones / licitaciones) - a segmented pill control, not a plain
+   link, so it reads as "you are here / switch product" rather than a minor nav item. */
+.tabs { display: flex; gap: .25rem; background: var(--accent-soft); padding: .25rem; border-radius: 999px; }
+.tabs .tab {
+  padding: .45rem 1.1rem; border-radius: 999px; font-size: .9rem; font-weight: 700;
+  text-decoration: none; color: var(--accent-dark); transition: background .15s, color .15s;
+}
+.tabs .tab.on { background: var(--accent); color: #fff; }
+.tabs .tab:not(.on):hover { background: rgba(255, 255, 255, .65); }
+@media (max-width: 560px) { .tabs .tab { padding: .4rem .8rem; font-size: .82rem; } }
 .btn {
   display: inline-block; background: var(--accent); color: #fff; border: none;
   padding: .55rem 1.2rem; border-radius: 999px; font-size: .95rem; font-weight: 600;
