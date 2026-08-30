@@ -14,7 +14,7 @@
 import 'dotenv/config';
 import { db, uuid } from '../db.js';
 import { bdnsGet, ddmmyyyy, alert } from './bdns.js';
-import { enrichGrant } from './enrich.js';
+import { prepareEnrichment, enrichBatch } from './enrich.js';
 
 const LOOKBACK_DAYS = Number(process.env.POLL_LOOKBACK_DAYS || 7);
 const PAGE_SIZE = 200;
@@ -107,7 +107,14 @@ export async function pollOnce() {
 
   // Rows we skip stay in grant_row unpublished, so they are never reconsidered:
   // the dedupe above means each reference costs at most one detail call, ever.
-  let enriched = 0, skipped = 0, failed = 0;
+  //
+  // The BDNS detail + bases-PDF fetches below stay sequential and throttled (that API
+  // blocks noisy clients); the LLM call does not — prepareEnrichment() only does the
+  // deterministic work (deadline, territory, PDF text) and every screened-in grant is
+  // queued into a single Batch API call afterward instead of paying list price one at a
+  // time. See src/ingest/enrich.js.
+  const toEnrich = [];
+  let skipped = 0, prepFailed = 0;
   for (const g of fresh) {
     try {
       const detail = await bdnsGet('/convocatorias', { numConv: g.ref });
@@ -117,17 +124,19 @@ export async function pollOnce() {
         skipped++;
         db.prepare('UPDATE grant_row SET skip_reason = ? WHERE id = ?').run(reason, g.id);
       } else {
-        await enrichGrant(g.id, g.ref, { detail });
-        enriched++;
+        toEnrich.push(await prepareEnrichment(g.id, g.ref, { detail }));
         // Note: enriched rows still land unpublished. Nothing reaches the public
         // directory without an operator publishing it (see routes/operator.js).
       }
     } catch (e) {
-      failed++;
+      prepFailed++;
       alert('enrich', `convocatoria ${g.ref}: ${e.message}`);
     }
     await sleep(THROTTLE_MS);
   }
+
+  const { enriched, failed: batchFailed } = await enrichBatch(toEnrich);
+  const failed = prepFailed + batchFailed;
   console.log(`poll done: ${enriched} enriched (awaiting publish), ${skipped} skipped (not applicable), ${failed} failed`);
   return enriched;
 }

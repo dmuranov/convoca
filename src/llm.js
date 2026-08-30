@@ -2,8 +2,11 @@ import Anthropic from '@anthropic-ai/sdk';
 
 export const anthropic = new Anthropic(); // reads ANTHROPIC_API_KEY from env
 
-// Ingest extraction: reads legal PDFs, writes the summaries that ARE the product.
-export const MODEL = process.env.CONVOCA_MODEL || 'claude-opus-5';
+// Ingest extraction: schema-constrained JSON out of BDNS fields + bases text, one grant
+// ever (see poll.js's dedupe) - not a job that needs Opus. Haiku, and batched (enrich.js
+// enrichBatch / scripts/backfill-batch.js) since nothing in the nightly poll is waiting
+// on the response.
+export const MODEL = process.env.CONVOCA_MODEL || 'claude-haiku-4-5';
 
 // Public chat: repeats stored text against a pre-filtered list — a much easier job, and
 // the one exposed to unbounded traffic. Separate knob so it can be priced independently.

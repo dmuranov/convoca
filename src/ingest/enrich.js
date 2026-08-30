@@ -96,9 +96,7 @@ export function extractContext(grant, detail, basesText) {
   ].join('\n');
 }
 
-async function llmExtract(grant, detail, basesText) {
-  const context = extractContext(grant, detail, basesText);
-
+async function llmExtract(context) {
   const response = await anthropic.messages.create({
     model: MODEL,
     max_tokens: 2048,
@@ -110,10 +108,18 @@ async function llmExtract(grant, detail, basesText) {
   return JSON.parse(text);
 }
 
+// -- Deterministic phase: BDNS detail, deadline, bases PDF, territory. No LLM call, and it
+// writes every column enrichment owns EXCEPT the LLM-derived ones (ai_summary, plain_*,
+// category, grant_eligibility) - those land later via applyAiResult(), once the batch this
+// feeds (enrichBatch, below) returns. Writing here means a grant is never left as a bare
+// stub if that batch times out or the process restarts: deadline/status/territory/raw_text
+// are already durable, and only the plain-language fields are missing - the same condition
+// scripts/backfill-batch.js already sweeps up by default.
+//
 // `detail` may be supplied by the caller: the poller already fetches it to screen
 // convocatorias before paying for extraction, and re-fetching would double the
 // request count against an API that is known to block noisy clients.
-export async function enrichGrant(grantId, bdnsRef, { detail: pre } = {}) {
+export async function prepareEnrichment(grantId, bdnsRef, { detail: pre } = {}) {
   const grant = db.prepare('SELECT * FROM grant_row WHERE id = ?').get(grantId);
   const detail = pre || await bdnsGet('/convocatorias', { numConv: bdnsRef });
 
@@ -149,14 +155,6 @@ export async function enrichGrant(grantId, bdnsRef, { detail: pre } = {}) {
     }
   }
 
-  // -- LLM summary + eligibility (never dates) --
-  let ai = null;
-  try {
-    ai = await llmExtract(grant, detail, basesText);
-  } catch (e) {
-    alert('extract', `convocatoria ${bdnsRef}: ${e.message}`);
-  }
-
   // Links. BDNS gives no per-convocatoria application URL: `sedeElectronica` is the
   // organism's generic portal root and `urlBasesReguladoras` is the framework rules,
   // often years older than this call. Neither belongs on a "ver convocatoria" button,
@@ -183,35 +181,115 @@ export async function enrichGrant(grantId, bdnsRef, { detail: pre } = {}) {
       -- re-enrichment (scripts/reenrich.js) must not push closed_at forward each run
       closed_at = COALESCE(closed_at, ?),
       budget_total = ?, application_url = COALESCE(?, application_url),
-      sede_url = COALESCE(?, sede_url),
-      raw_text = ?, ai_summary = ?, plain_title = COALESCE(?, plain_title),
-      plain_explainer = COALESCE(?, plain_explainer),
-      plain_checklist = COALESCE(?, plain_checklist),
+      sede_url = COALESCE(?, sede_url), raw_text = ?,
       region = COALESCE(?, region), province = COALESCE(?, province),
-      municipality = COALESCE(?, municipality),
-      category = COALESCE(?, category), is_rolling = ?
+      municipality = COALESCE(?, municipality), is_rolling = ?
     WHERE id = ?`)
     .run(deadline, source, confirmed, status, closedAt,
       detail.presupuestoTotal ?? null,
       cleanUrl(detail.urlBasesReguladoras), cleanUrl(detail.sedeElectronica),
-      basesText ? basesText.slice(0, 200000) : null, ai?.resumen || null,
-      ai?.titulo_claro?.trim() || null,
-      ai?.explicacion ? JSON.stringify(ai.explicacion) : null,
-      ai?.documentos_necesarios ? JSON.stringify(ai.documentos_necesarios) : null,
+      basesText ? basesText.slice(0, 200000) : null,
       territory.ccaa, territory.province, muni?.name || null,
-      ai?.category || null,
       detail.plazoIndefinido ? 1 : 0, grantId);
 
-  if (ai) {
-    // One eligibility row per grant. Enrichment is re-runnable (schema changes, retries),
-    // and a plain INSERT would leave a second row that duplicates the grant in every
-    // LEFT JOIN behind the public list and the panel.
-    db.prepare('DELETE FROM grant_eligibility WHERE grant_id = ?').run(grantId);
-    db.prepare(`INSERT INTO grant_eligibility (id, grant_id, entity_types, pop_min, pop_max, territory_scope, funds_what, notes)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
-      .run(uuid(), grantId, JSON.stringify(ai.entity_types || []), ai.pop_min ?? null, ai.pop_max ?? null,
-        ai.territory_scope || null, JSON.stringify(ai.funds_what || []), null);
-    suggestMatches(grantId);
+  console.log(`prepared ${bdnsRef}: deadline=${deadline ?? '—'} (${source ?? 'none'}), status=${status}`);
+  return { grantId, bdnsRef, context: extractContext(grant, detail, basesText) };
+}
+
+// -- LLM phase: writes only the fields the LLM owns. Same field set as
+// scripts/backfill-batch.js's applyResult, deliberately — a batch that never comes back
+// (timeout, crash) leaves rows exactly in the state that script's default selection
+// already looks for ("missing plain-language fields"), so it doubles as the recovery path.
+function applyAiResult(grantId, bdnsRef, ai) {
+  db.prepare(`UPDATE grant_row SET
+      ai_summary = COALESCE(?, ai_summary), plain_title = COALESCE(?, plain_title),
+      plain_explainer = COALESCE(?, plain_explainer), plain_checklist = COALESCE(?, plain_checklist),
+      category = COALESCE(?, category)
+    WHERE id = ?`)
+    .run(ai.resumen || null, ai.titulo_claro?.trim() || null,
+      ai.explicacion ? JSON.stringify(ai.explicacion) : null,
+      ai.documentos_necesarios ? JSON.stringify(ai.documentos_necesarios) : null,
+      ai.category || null, grantId);
+
+  // One eligibility row per grant. Enrichment is re-runnable (schema changes, retries),
+  // and a plain INSERT would leave a second row that duplicates the grant in every
+  // LEFT JOIN behind the public list and the panel.
+  db.prepare('DELETE FROM grant_eligibility WHERE grant_id = ?').run(grantId);
+  db.prepare(`INSERT INTO grant_eligibility (id, grant_id, entity_types, pop_min, pop_max, territory_scope, funds_what, notes)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
+    .run(uuid(), grantId, JSON.stringify(ai.entity_types || []), ai.pop_min ?? null, ai.pop_max ?? null,
+      ai.territory_scope || null, JSON.stringify(ai.funds_what || []), null);
+  suggestMatches(grantId);
+  console.log(`enriched ${bdnsRef}: ai=ok`);
+}
+
+// Single-grant path: scripts/reenrich.js and anywhere else that needs one grant enriched
+// immediately, at list price, rather than queued into the nightly batch.
+export async function enrichGrant(grantId, bdnsRef, opts = {}) {
+  const { context } = await prepareEnrichment(grantId, bdnsRef, opts);
+  try {
+    applyAiResult(grantId, bdnsRef, await llmExtract(context));
+  } catch (e) {
+    alert('extract', `convocatoria ${bdnsRef}: ${e.message}`);
   }
-  console.log(`enriched ${bdnsRef}: deadline=${deadline ?? '—'} (${source ?? 'none'}), status=${status}, ai=${ai ? 'ok' : 'FAILED'}`);
+}
+
+// Batch path for the live nightly poll: `prepared` is a list of {grantId, bdnsRef, context}
+// already produced by prepareEnrichment (deterministic fields already durable). One Batch
+// API call for the whole night's arrivals — half price, and nothing here is waiting on the
+// response — then poll for completion and write back each result as it lands.
+const BATCH_POLL_MS = Number(process.env.INGEST_BATCH_POLL_MS || 60_000);
+const BATCH_TIMEOUT_MS = Number(process.env.INGEST_BATCH_TIMEOUT_MS || 2 * 60 * 60_000);
+
+export async function enrichBatch(prepared) {
+  if (!prepared.length) return { enriched: 0, failed: 0 };
+
+  const batch = await anthropic.messages.batches.create({
+    requests: prepared.map(p => ({
+      custom_id: p.grantId,
+      params: {
+        model: MODEL,
+        max_tokens: 2048,
+        system: EXTRACT_SYSTEM,
+        output_config: { format: { type: 'json_schema', schema: ELIGIBILITY_SCHEMA } },
+        messages: [{ role: 'user', content: p.context }],
+      },
+    })),
+  });
+  console.log(`enrich batch ${batch.id}: ${prepared.length} request(s) submitted`);
+
+  const giveUpAt = Date.now() + BATCH_TIMEOUT_MS;
+  let b;
+  for (;;) {
+    b = await anthropic.messages.batches.retrieve(batch.id);
+    if (b.processing_status === 'ended') break;
+    if (Date.now() > giveUpAt) {
+      alert('extract', `batch ${batch.id} still ${b.processing_status} after `
+        + `${Math.round(BATCH_TIMEOUT_MS / 60_000)}min — leaving ${prepared.length} grant(s) `
+        + `for the next backfill-batch.js sweep`);
+      return { enriched: 0, failed: prepared.length };
+    }
+    await new Promise(r => setTimeout(r, BATCH_POLL_MS));
+  }
+
+  const byId = new Map(prepared.map(p => [p.grantId, p]));
+  let enriched = 0, failed = 0;
+  for await (const r of await anthropic.messages.batches.results(batch.id)) {
+    const p = byId.get(r.custom_id);
+    if (!p) continue;
+    if (r.result.type !== 'succeeded') {
+      failed++;
+      alert('extract', `convocatoria ${p.bdnsRef}: batch ${r.result.type} ${r.result.error?.type || ''}`);
+      continue;
+    }
+    const text = r.result.message.content.find(c => c.type === 'text')?.text;
+    try {
+      applyAiResult(p.grantId, p.bdnsRef, JSON.parse(text || '{}'));
+      enriched++;
+    } catch (e) {
+      failed++;
+      alert('extract', `convocatoria ${p.bdnsRef}: unparseable extract (${e.message})`);
+    }
+  }
+  return { enriched, failed };
 }
