@@ -246,15 +246,21 @@ const BATCH_TIMEOUT_MS = Number(process.env.INGEST_BATCH_TIMEOUT_MS || 2 * 60 * 
 export async function enrichBatch(prepared) {
   if (!prepared.length) return { enriched: 0, failed: 0 };
 
+  // custom_id must match ^[a-zA-Z0-9_-]{1,64}$ - a real PLACSP expediente does not
+  // ("713/2026", "CMA 01/2026" both fail on the slash/space), and the Batch API rejects
+  // the WHOLE submission if even one request's custom_id is invalid. Use the row's own
+  // uuid (already safe) instead, same as enrich.js does with grantId, and map back to
+  // expediente when applying results below.
+  const byId = new Map(prepared.map(p => [p.id, p.expediente]));
   const batch = await anthropic.messages.batches.create({
     requests: prepared.map(p => ({
-      custom_id: p.expediente,
+      custom_id: p.id,
       params: {
         model: MODEL,
         // Matches enrich.js's 4096 (bumped after production truncation failures on the
-    // BDNS side with the same shape of schema) rather than risk the same failure mode
-    // here before it's ever been observed.
-    max_tokens: 4096,
+        // BDNS side with the same shape of schema) rather than risk the same failure mode
+        // here before it's ever been observed.
+        max_tokens: 4096,
         system: EXTRACT_SYSTEM,
         output_config: { format: { type: 'json_schema', schema: LICITACION_SCHEMA } },
         messages: [{ role: 'user', content: p.context }],
@@ -278,18 +284,20 @@ export async function enrichBatch(prepared) {
 
   let enriched = 0, failed = 0;
   for await (const r of await anthropic.messages.batches.results(batch.id)) {
+    const expediente = byId.get(r.custom_id);
+    if (!expediente) continue;
     if (r.result.type !== 'succeeded') {
       failed++;
-      alert('extract', `expediente ${r.custom_id}: batch ${r.result.type} ${r.result.error?.type || ''}`);
+      alert('extract', `expediente ${expediente}: batch ${r.result.type} ${r.result.error?.type || ''}`);
       continue;
     }
     const text = r.result.message.content.find(c => c.type === 'text')?.text;
     try {
-      applyAiResult(r.custom_id, JSON.parse(text || '{}'));
+      applyAiResult(expediente, JSON.parse(text || '{}'));
       enriched++;
     } catch (e) {
       failed++;
-      alert('extract', `expediente ${r.custom_id}: unparseable extract (${e.message})`);
+      alert('extract', `expediente ${expediente}: unparseable extract (${e.message})`);
     }
   }
   return { enriched, failed };
