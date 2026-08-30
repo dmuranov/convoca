@@ -77,6 +77,35 @@ operatorRouter.post('/api/op/grants/publish-batch', (req, res) => {
   res.json({ ok: true, published, skipped: ids.length - published, estimated_deadlines: estimated });
 });
 
+// ---- licitación queue ----
+// Keyed on expediente (the business key), not id - a licitación is looked up the same
+// way everywhere (feed dedupe, enrichment, this console), no reason to introduce a second
+// identifier just for the operator screen.
+operatorRouter.get('/api/op/licitaciones', (req, res) => {
+  const where = req.query.q === 'pending' ? 'WHERE published = 0' : '';
+  const rows = db.prepare(`SELECT * FROM licitacion_row ${where} ORDER BY created_at DESC LIMIT 500`).all();
+  res.json(rows);
+});
+
+operatorRouter.post('/api/op/licitaciones/:expediente/publish', (req, res) => {
+  const { changes } = db.prepare('UPDATE licitacion_row SET published = ? WHERE expediente = ?')
+    .run(req.body?.published ? 1 : 0, req.params.expediente);
+  if (!changes) return res.status(404).json({ error: 'no encontrado' });
+  res.json({ ok: true });
+});
+
+operatorRouter.post('/api/op/licitaciones/publish-batch', (req, res) => {
+  const ids = Array.isArray(req.body?.ids) ? req.body.ids.filter(x => typeof x === 'string') : null;
+  if (!ids?.length) return res.status(400).json({ error: 'faltan ids' });
+  if (ids.length > 500) return res.status(400).json({ error: 'máximo 500 por lote' });
+
+  const publish = db.prepare(`UPDATE licitacion_row SET published = 1
+    WHERE expediente = ? AND resumen IS NOT NULL AND estado = 'licitacion'`);
+  const run = db.transaction((list) => list.reduce((n, exp) => n + publish.run(exp).changes, 0));
+  const published = run(ids);
+  res.json({ ok: true, published, skipped: ids.length - published });
+});
+
 // Builds the "papers needed" line from plain_checklist. Each item is an
 // object ({ documento, para_que_sirve, donde_conseguirlo } - see
 // src/ingest/enrich.js's documentos_necesarios schema), not a plain string -

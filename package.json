@@ -9,6 +9,7 @@
     "start": "node server.js",
     "seed": "node scripts/seed.js",
     "poll": "node src/ingest/poll.js",
+    "poll:licitaciones": "node src/ingest/pollLicitaciones.js",
     "test": "node --test"
   },
   "dependencies": {
@@ -17,6 +18,7 @@
     "better-sqlite3": "^12.11.1",
     "dotenv": "^16.4.5",
     "express": "^4.19.2",
+    "fast-xml-parser": "^4.5.7",
     "node-cron": "^3.0.3",
     "pdf-parse": "^1.1.1"
   }

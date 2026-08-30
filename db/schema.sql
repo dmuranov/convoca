@@ -210,6 +210,50 @@ CREATE TABLE IF NOT EXISTS ingest_alert (
   resolved    INTEGER NOT NULL DEFAULT 0
 );
 
+-- PLACSP tenders (licitaciones), for the bidder-facing directory. Unlike grant_row, a
+-- licitación is NOT immutable: the same expediente re-appears in the feed as its estado
+-- moves PUB -> EV -> ADJ -> RES (or ANUL), so this table is upserted on expediente rather
+-- than insert-once. `updated_at` is the feed's own <updated> timestamp and is what
+-- pollLicitaciones.js compares to decide whether a row needs re-enriching.
+CREATE TABLE IF NOT EXISTS licitacion_row (
+  id                       TEXT PRIMARY KEY,
+  expediente               TEXT NOT NULL UNIQUE,
+  source_url               TEXT,
+  updated_at               TEXT NOT NULL,
+  estado                   TEXT NOT NULL CHECK (estado IN
+                             ('anuncio_previo','licitacion','pendiente_adjudicacion','adjudicada','resuelta','anulada')),
+  organo                   TEXT,
+  tipo_contrato            TEXT,
+  procedimiento            TEXT,
+  cpv                      TEXT NOT NULL DEFAULT '[]',        -- JSON array of CPV codes
+  valor_estimado           REAL,
+  presupuesto_base         REAL,
+  iva                      TEXT CHECK (iva IN ('incluido','excluido','no_consta')),
+  -- literal date from the feed, exactly like grant_row.deadline_date - never computed
+  fecha_limite             TEXT,
+  lugar                    TEXT,
+  duracion                 TEXT,
+  num_lotes                INTEGER NOT NULL DEFAULT 0,
+  pliegos                  TEXT NOT NULL DEFAULT '[]',        -- JSON [{nombre, url}]
+  raw_text                 TEXT,                              -- parsed PCAP/PPT text
+  -- AI-owned fields below. Deliberately excludes anything the feed already gives
+  -- deterministically (importe, plazo, lugar, organo, procedimiento) - the LLM only
+  -- writes fields that need actual language generation/judgement, never a number or date
+  -- it could get wrong in transcription (same rule BDNS enrichment follows for deadlines).
+  titulo                   TEXT,
+  resumen                  TEXT,
+  quien_puede_interesarle  TEXT,
+  que_hay_que_hacer        TEXT,                              -- JSON array
+  requisitos_clave         TEXT,                              -- JSON array
+  complejidad              TEXT CHECK (complejidad IN ('baja','media','alta')),
+  complejidad_motivo       TEXT,
+  campos_ausentes          TEXT,                              -- JSON array
+  published                INTEGER NOT NULL DEFAULT 0,
+  created_at               TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_licitacion_estado ON licitacion_row(estado);
+CREATE INDEX IF NOT EXISTS idx_licitacion_published ON licitacion_row(published);
+
 -- Public contact form. Deliberately NOT the `request` table: that one models a known
 -- pilot village asking for something (municipality_id NOT NULL, immutable raw_text) and
 -- an anonymous visitor has no municipality row. Retention is enforced by a nightly prune

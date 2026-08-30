@@ -1,0 +1,26 @@
+/* Licitaciones tab palette. Loaded after styles.css - overrides only the :root tokens, so
+   every component (.btn, .card, .chip, .badge-days, the explainer panels...) re-themes
+   automatically through the CSS variable cascade. Nothing here duplicates a component
+   rule; if a new one is ever needed, it belongs in styles.css, not here. */
+:root {
+  --ink: #241623;
+  --muted: #7a5d70;
+  --bg: #fff6f0;
+  --card: #ffffff;
+  --accent: #ff5a1f;
+  --accent-dark: #d43f0a;
+  --accent-soft: #ffe4d3;
+  --line: #ffd9c2;
+  --warn: #9d2b6b;
+  --warn-soft: #fbe4f0;
+}
+
+.hero {
+  background: radial-gradient(ellipse 80% 60% at 50% -10%, #ffe0cc 0%, rgba(255, 246, 240, 0) 70%);
+}
+
+/* Complejidad badge - specific to this tab, so it lives here rather than styles.css. */
+.chip-complejidad { font-weight: 700; }
+.chip-complejidad.baja { background: #e3f6ea; color: #1e7a45; border-color: #bfe8cf; }
+.chip-complejidad.media { background: #fff3d6; color: #96650a; border-color: #ffe3a3; }
+.chip-complejidad.alta { background: var(--warn-soft); color: var(--warn); border-color: #f3c4dd; }

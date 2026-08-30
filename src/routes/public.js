@@ -94,6 +94,25 @@ publicRouter.get('/api/grants', (req, res) => {
   res.json({ grants: rows, regions, stats: { open: rows.length, updated: last ? last.slice(0, 10) : null } });
 });
 
+// Public licitaciones directory: only published, actively-open tenders — same "only what
+// someone can act on right now" rule as /api/grants (published + status OPEN there).
+// adjudicada/resuelta/anulada rows exist in the DB (see enrichLicitacion.js's estado
+// handling) but aren't bidding opportunities any more, so they stay out of the public list.
+publicRouter.get('/api/licitaciones', (req, res) => {
+  const rows = db.prepare(`
+    SELECT expediente, organo, tipo_contrato, procedimiento, cpv, valor_estimado,
+           presupuesto_base, iva, fecha_limite, lugar, duracion, num_lotes, pliegos,
+           source_url, titulo, resumen, quien_puede_interesarle, que_hay_que_hacer,
+           requisitos_clave, complejidad, complejidad_motivo
+    FROM licitacion_row
+    WHERE published = 1 AND estado = 'licitacion'
+    ORDER BY fecha_limite IS NULL, fecha_limite
+    LIMIT 400`).all();
+  const last = db.prepare('SELECT MAX(created_at) m FROM licitacion_row').get().m;
+  const tipos = [...new Set(rows.map(r => r.tipo_contrato).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'es'));
+  res.json({ licitaciones: rows, tipos, stats: { open: rows.length, updated: last ? last.slice(0, 10) : null } });
+});
+
 function chatContext(place) {
   // Only published grants; computed deadlines carry the estimated marker.
   // Territory filtering happens in SQL, not in the model. Shipping the whole open set and

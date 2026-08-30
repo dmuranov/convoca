@@ -11,6 +11,7 @@ import { webhooksRouter } from './src/routes/webhooks.js';
 import { login, logout, loginThrottled, redeemInvite, sessionUser,
          setSessionCookie, clearSessionCookie, seedOperator } from './src/auth.js';
 import { pollOnce } from './src/ingest/poll.js';
+import { pollLicitacionesOnce } from './src/ingest/pollLicitaciones.js';
 import { alert } from './src/ingest/bdns.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -72,6 +73,7 @@ const web = (f) => path.join(__dirname, 'web', f);
 app.get('/', (req, res) => res.sendFile(web('index.html')));
 app.get('/entrar', (req, res) => res.sendFile(web('login.html')));
 app.get('/registro', (req, res) => res.sendFile(web('registro.html')));
+app.get('/licitaciones', (req, res) => res.sendFile(web('licitaciones.html')));
 app.get('/panel', (req, res) => {
   const u = sessionUser(req);
   if (!u) return res.redirect('/entrar');
@@ -84,6 +86,13 @@ if (process.env.NODE_ENV === 'production') {
   cron.schedule('0 7 * * *', async () => {
     try { await pollOnce(); }
     catch (e) { alert('poll', e.message); }
+  }, { timezone: 'Europe/Madrid' });
+
+  // Staggered 30min after the BDNS poll rather than run concurrently - both hit the
+  // Anthropic Batch API and there's no reason to make them contend for the same window.
+  cron.schedule('30 7 * * *', async () => {
+    try { await pollLicitacionesOnce(); }
+    catch (e) { alert('placsp_poll', e.message); }
   }, { timezone: 'Europe/Madrid' });
 }
 

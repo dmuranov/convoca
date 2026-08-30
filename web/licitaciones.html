@@ -1,0 +1,191 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Licitaciones — Plazo Abierto | contratos públicos para pymes, autónomos y asociaciones</title>
+<meta name="description" content="Licitaciones públicas españolas traducidas a español llano: qué hay que hacer, quién puede presentarse y qué piden.">
+<link rel="icon" type="image/png" href="/favicon.png">
+<link rel="stylesheet" href="/styles.css">
+<link rel="stylesheet" href="/styles-licitaciones.css">
+</head>
+<body>
+<header class="site">
+  <div class="wrap">
+    <a class="logo" href="/">Plazo<span class="b">Abierto</span></a>
+    <nav>
+      <a class="btn ghost small" href="/" style="margin-right:.5rem">Subvenciones</a>
+      <a class="btn small" href="/licitaciones">Licitaciones</a>
+    </nav>
+  </div>
+</header>
+
+<section class="hero">
+  <div class="wrap">
+    <span class="pill">Contratos públicos, en español llano</span>
+    <h1>Encuentra el contrato público que tu negocio puede ganar</h1>
+    <p class="sub">Vigilamos a diario la Plataforma de Contratación del Sector Público y traducimos
+    cada licitación: qué hay que hacer, para quién es, y qué piden para presentarte.</p>
+
+    <div class="stats">
+      <div class="stat"><div class="n" id="st-open">—</div><div class="l">licitaciones abiertas ahora</div></div>
+      <div class="stat"><div class="n">A diario</div><div class="l">revisamos la Plataforma de Contratación</div></div>
+      <div class="stat"><div class="n" id="st-upd">—</div><div class="l">última actualización del índice</div></div>
+    </div>
+  </div>
+</section>
+
+<main class="wrap">
+
+  <section id="abiertas" style="padding-top:1rem">
+    <h2 style="text-align:center">Licitaciones abiertas</h2>
+    <div class="filter-chips" id="filters"></div>
+    <div class="grants-grid" id="grid"></div>
+    <p class="muted" id="empty" hidden style="text-align:center">
+      Ahora mismo no hay licitaciones publicadas en el índice. Vuelve a pasarte pronto.</p>
+  </section>
+
+  <section class="card" style="margin-top:2.5rem">
+    <h3>Cómo funciona</h3>
+    <p><strong>1 · Vigilamos.</strong> Leemos a diario el feed público de la Plataforma de
+    Contratación del Sector Público (PLACSP).</p>
+    <p><strong>2 · Traducimos.</strong> Qué hay que hacer, quién puede presentarse y qué
+    piden. Sin jerga administrativa.</p>
+    <p><strong>3 · Tú decides.</strong> El importe, el plazo y el procedimiento son datos
+    literales de la plataforma — nunca los tocamos ni los calculamos.</p>
+  </section>
+</main>
+
+<footer class="site">
+  <div class="wrap">
+    <p>Los datos proceden de la <a href="https://contrataciondelestado.es">Plataforma de Contratación del Sector Público</a>.
+    Confirma siempre importes, plazos y requisitos en la licitación oficial antes de presentarte.</p>
+    <p>© <span id="yr"></span> Plazo Abierto ·
+    <a href="mailto:hola@plazoabierto.es">hola@plazoabierto.es</a></p>
+  </div>
+</footer>
+
+<script>
+document.getElementById('yr').textContent = new Date().getFullYear();
+const eur = (n) => n == null ? null : Number(n).toLocaleString('es-ES') + ' €';
+// Third-party (PLACSP + model output) text rendered via innerHTML - always escape.
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, c =>
+  ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+let ALL = [], activeTipo = null;
+
+function daysLeft(deadline) {
+  if (!deadline) return null;
+  return Math.ceil((new Date(deadline + 'T23:59:59') - Date.now()) / 86400000);
+}
+
+function render() {
+  const grid = document.getElementById('grid');
+  const list = activeTipo ? ALL.filter(l => l.tipo_contrato === activeTipo) : ALL;
+  document.getElementById('empty').hidden = !!list.length;
+
+  grid.innerHTML = list.map((l, i) => {
+    const d = daysLeft(l.fecha_limite);
+    // fecha_limite is a literal field straight from PLACSP, never computed - no
+    // estimated-date asterisk needed here the way grant_row's deadline sometimes does.
+    const badge = d != null
+      ? `<span class="badge-days ${d <= 5 ? 'soon' : ''}">${d <= 0 ? 'último día' : `quedan ${d} días`}</span>`
+      : '<span class="badge-days soon">plazo por confirmar</span>';
+
+    const amount = l.presupuesto_base
+      ? `${eur(l.presupuesto_base)} ${l.iva === 'incluido' ? '(IVA incl.)' : l.iva === 'excluido' ? '(sin IVA)' : ''}`
+      : 'según pliegos';
+
+    const complejidad = l.complejidad
+      ? `<span class="chip chip-complejidad ${esc(l.complejidad)}" title="${esc(l.complejidad_motivo || '')}">Complejidad: ${esc(l.complejidad)}</span>`
+      : '';
+
+    // "Explícamelo fácil" panel - same collapsed-until-asked pattern as the subvenciones tab.
+    let tareas = []; try { tareas = JSON.parse(l.que_hay_que_hacer || '[]'); } catch {}
+    const explainer = (l.quien_puede_interesarle || tareas.length) ? `
+      <button class="btn ghost block explain-btn" type="button" aria-expanded="false" aria-controls="ex-${i}">
+        Explícamelo fácil
+      </button>
+      <div class="explainer" id="ex-${i}" hidden>
+        ${l.quien_puede_interesarle ? `<p><strong>¿A quién le interesa?</strong><br>${esc(l.quien_puede_interesarle)}</p>` : ''}
+        ${tareas.length ? `<p><strong>¿Qué hay que hacer?</strong></p><ul>${tareas.map(t => `<li>${esc(t)}</li>`).join('')}</ul>` : ''}
+        <p class="official">Resumen redactado automáticamente a partir del anuncio y los pliegos.
+        Ante cualquier duda consulta la licitación oficial.</p>
+      </div>` : '';
+
+    // "¿Qué papeles necesito?" panel - requisitos_clave is the closest PLACSP has to a
+    // document checklist (the feed doesn't itemise paperwork the way BDNS's bases do).
+    let requisitos = []; try { requisitos = JSON.parse(l.requisitos_clave || '[]'); } catch {}
+    const papeles = requisitos.length ? `
+      <button class="btn ghost block papeles-btn" type="button" aria-expanded="false" aria-controls="pp-${i}">
+        ¿Qué papeles necesito?
+      </button>
+      <div class="explainer" id="pp-${i}" hidden>
+        ${requisitos.map(r => `<p>${esc(r)}</p>`).join('')}
+        <p class="official">Lista redactada automáticamente a partir de los pliegos.
+        Ante cualquier duda consulta la licitación oficial.</p>
+      </div>` : '';
+
+    let pliegos = []; try { pliegos = JSON.parse(l.pliegos || '[]'); } catch {}
+    const pliegoLinks = pliegos.map(p => `<a href="${esc(p.url)}" target="_blank" rel="noopener">${esc(p.nombre)}</a>`).join(' · ');
+
+    return `<article class="grant-card">
+      <div class="org">${esc(l.organo || '')} ${badge}</div>
+      <h4>${esc(l.titulo || l.expediente)}</h4>
+      <p class="desc">${esc(l.resumen || '')}</p>
+      <div>
+        <span class="chip"><span class="k">Importe</span><span class="v">${amount}</span></span>
+        ${l.lugar ? `<span class="chip"><span class="k">Lugar</span><span class="v">${esc(l.lugar)}</span></span>` : ''}
+        ${l.num_lotes > 1 ? `<span class="chip"><span class="k">Lotes</span><span class="v">${l.num_lotes}</span></span>` : ''}
+        ${complejidad}
+      </div>
+      <div style="margin:.3rem 0 .8rem">${l.tipo_contrato ? `<span class="tag">${esc(l.tipo_contrato)}</span>` : ''}${l.procedimiento ? `<span class="tag">${esc(l.procedimiento)}</span>` : ''}</div>
+      ${explainer}
+      ${papeles}
+      <div class="spacer"></div>
+      <a class="btn block" target="_blank" rel="noopener" href="${esc(l.source_url)}">Ver licitación oficial →</a>
+      ${pliegoLinks ? `<p class="official links">${pliegoLinks}</p>` : ''}
+    </article>`;
+  }).join('');
+}
+
+document.getElementById('filters').addEventListener('click', (ev) => {
+  const b = ev.target.closest('button');
+  if (!b) return;
+  activeTipo = b.dataset.tipo || null;
+  document.querySelectorAll('#filters button').forEach(x => x.classList.toggle('on', x === b));
+  render();
+});
+
+document.getElementById('grid').addEventListener('click', (ev) => {
+  const btn = ev.target.closest('.explain-btn, .papeles-btn');
+  if (!btn) return;
+  const isPapeles = btn.classList.contains('papeles-btn');
+  const labels = isPapeles
+    ? ['¿Qué papeles necesito?', 'Ocultar papeles']
+    : ['Explícamelo fácil', 'Ocultar explicación'];
+  const panel = document.getElementById(btn.getAttribute('aria-controls'));
+  const open = panel.hidden;
+  panel.hidden = !open;
+  btn.setAttribute('aria-expanded', String(open));
+  btn.textContent = open ? labels[1] : labels[0];
+});
+
+(async function load() {
+  try {
+    const r = await (await fetch('/api/licitaciones')).json();
+    ALL = r.licitaciones || [];
+    document.getElementById('st-open').textContent = r.stats?.open ?? '—';
+    document.getElementById('st-upd').textContent = r.stats?.updated
+      ? new Date(r.stats.updated).toLocaleDateString('es-ES', { day: 'numeric', month: 'short', year: 'numeric' }) : '—';
+    const tipos = r.tipos || [];
+    document.getElementById('filters').innerHTML = tipos.length > 1
+      ? `<button class="on" data-tipo="">Todos</button>` + tipos.map(t => `<button data-tipo="${esc(t)}">${esc(t)}</button>`).join('') : '';
+    render();
+  } catch {
+    document.getElementById('empty').hidden = false;
+  }
+})();
+</script>
+</body>
+</html>
