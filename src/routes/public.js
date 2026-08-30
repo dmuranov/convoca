@@ -110,7 +110,13 @@ publicRouter.get('/api/licitaciones', (req, res) => {
     LIMIT 400`).all();
   const last = db.prepare('SELECT MAX(created_at) m FROM licitacion_row').get().m;
   const tipos = [...new Set(rows.map(r => r.tipo_contrato).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'es'));
-  res.json({ licitaciones: rows, tipos, stats: { open: rows.length, updated: last ? last.slice(0, 10) : null } });
+  // `lugar` is PLACSP's raw CountrySubentity text - a province name for most entries but
+  // a CCAA name for the single-province CCAAs (Asturias, Madrid, Murcia...), because
+  // that's genuinely how the source data is. A clean province/CCAA split like
+  // grants get from regions.js would need the NUTS code (CountrySubentityCode, not
+  // currently stored) - flat unique values is what the data actually supports today.
+  const lugares = [...new Set(rows.map(r => r.lugar).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'es'));
+  res.json({ licitaciones: rows, tipos, lugares, stats: { open: rows.length, updated: last ? last.slice(0, 10) : null } });
 });
 
 function chatContext(place) {

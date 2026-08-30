@@ -42,6 +42,7 @@
   <section id="abiertas" style="padding-top:1rem">
     <h2 style="text-align:center">Licitaciones abiertas</h2>
     <div class="filter-chips" id="filters"></div>
+    <div class="filter-chips" id="filters-lugar"></div>
     <div class="grants-grid" id="grid"></div>
     <p class="muted" id="empty" hidden style="text-align:center">
       Ahora mismo no hay licitaciones publicadas en el índice. Vuelve a pasarte pronto.</p>
@@ -74,7 +75,7 @@ const eur = (n) => n == null ? null : Number(n).toLocaleString('es-ES') + ' €'
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, c =>
   ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
-let ALL = [], activeTipo = null;
+let ALL = [], activeTipo = null, activeLugar = null;
 
 function daysLeft(deadline) {
   if (!deadline) return null;
@@ -83,7 +84,9 @@ function daysLeft(deadline) {
 
 function render() {
   const grid = document.getElementById('grid');
-  const list = activeTipo ? ALL.filter(l => l.tipo_contrato === activeTipo) : ALL;
+  const list = ALL
+    .filter(l => !activeTipo || l.tipo_contrato === activeTipo)
+    .filter(l => !activeLugar || l.lugar === activeLugar);
   document.getElementById('empty').hidden = !!list.length;
 
   grid.innerHTML = list.map((l, i) => {
@@ -158,6 +161,13 @@ document.getElementById('filters').addEventListener('click', (ev) => {
   document.querySelectorAll('#filters button').forEach(x => x.classList.toggle('on', x === b));
   render();
 });
+document.getElementById('filters-lugar').addEventListener('click', (ev) => {
+  const b = ev.target.closest('button');
+  if (!b) return;
+  activeLugar = b.dataset.lugar || null;
+  document.querySelectorAll('#filters-lugar button').forEach(x => x.classList.toggle('on', x === b));
+  render();
+});
 
 document.getElementById('grid').addEventListener('click', (ev) => {
   const btn = ev.target.closest('.explain-btn, .papeles-btn');
@@ -183,6 +193,9 @@ document.getElementById('grid').addEventListener('click', (ev) => {
     const tipos = r.tipos || [];
     document.getElementById('filters').innerHTML = tipos.length > 1
       ? `<button class="on" data-tipo="">Todos</button>` + tipos.map(t => `<button data-tipo="${esc(t)}">${esc(t)}</button>`).join('') : '';
+    const lugares = r.lugares || [];
+    document.getElementById('filters-lugar').innerHTML = lugares.length > 1
+      ? `<button class="on" data-lugar="">Toda España</button>` + lugares.map(l => `<button data-lugar="${esc(l)}">${esc(l)}</button>`).join('') : '';
     render();
   } catch {
     document.getElementById('empty').hidden = false;
