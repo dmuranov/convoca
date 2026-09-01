@@ -5,7 +5,7 @@
 // routes use (src/seoQueries.js), not a cached/stale count.
 import { Router } from 'express';
 import { db } from '../db.js';
-import { BASE_URL, esc, grantPath, slugify, CCAA_SLUGS, PROVINCE_CCAA, CATEGORY_SLUGS, BENEFICIARIO_SLUGS } from '../seoUtils.js';
+import { BASE_URL, esc, grantPath, licitacionPath, slugify, CCAA_SLUGS, PROVINCE_CCAA, CATEGORY_SLUGS, BENEFICIARIO_SLUGS } from '../seoUtils.js';
 import { MIN_LIVE, grantsByCcaa, grantsByProvince, grantsByCategory,
          grantsByBeneficiario, grantsByBeneficiarioCcaa } from '../seoQueries.js';
 
@@ -28,6 +28,7 @@ sitemapRouter.get('/sitemap_index.xml', (req, res) => {
     `<sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n` +
     `<sitemap><loc>${esc(BASE_URL)}/sitemap-hubs.xml</loc><lastmod>${now}</lastmod></sitemap>\n` +
     `<sitemap><loc>${esc(BASE_URL)}/sitemap-grants.xml</loc><lastmod>${now}</lastmod></sitemap>\n` +
+    `<sitemap><loc>${esc(BASE_URL)}/sitemap-licitaciones.xml</loc><lastmod>${now}</lastmod></sitemap>\n` +
     `</sitemapindex>`;
   res.set('Content-Type', 'application/xml; charset=utf-8').send(body);
 });
@@ -46,6 +47,23 @@ sitemapRouter.get('/sitemap-grants.xml', (req, res) => {
   const entries = rows.map(g => {
     const priority = g.status === 'CLOSED' ? 0.3 : 0.7;
     return urlTag(grantPath(g), (g.created_at || '').slice(0, 10) || null, priority);
+  });
+  res.set('Content-Type', 'application/xml; charset=utf-8').send(urlset(entries));
+});
+
+// Every published licitación (same §5 reasoning as grants: non-active estados stay
+// indexable with a status banner, so no estado filter here either). Active ('licitacion')
+// first, ordered by closest deadline; everything else last and lower-priority.
+sitemapRouter.get('/sitemap-licitaciones.xml', (req, res) => {
+  const rows = db.prepare(`
+    SELECT id, titulo, expediente, estado, fecha_limite, created_at
+    FROM licitacion_row WHERE published = 1
+    ORDER BY estado != 'licitacion', fecha_limite IS NULL, fecha_limite
+    LIMIT ?`).all(MAX_PER_SITEMAP);
+
+  const entries = rows.map(l => {
+    const priority = l.estado === 'licitacion' ? 0.7 : 0.3;
+    return urlTag(licitacionPath(l), (l.created_at || '').slice(0, 10) || null, priority);
   });
   res.set('Content-Type', 'application/xml; charset=utf-8').send(urlset(entries));
 });

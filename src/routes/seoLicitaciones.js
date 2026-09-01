@@ -108,7 +108,7 @@ function renderPage(l) {
   ${statusBanner}
 
   <p class="org muted">${esc(l.organo || '')}</p>
-  <h1>${esc(head)}</h1>
+  <h1>${esc(head)} <span class="muted" style="font-size:.55em;font-weight:400">— Expediente ${esc(l.expediente)}</span></h1>
 
   <div class="card">
     <p><strong>Quién puede presentarse</strong><br>${esc(l.quien_puede_interesarle || 'Consulta los pliegos oficiales')}</p>

@@ -8,7 +8,7 @@ import { pollLicitacionesOnce } from '../ingest/pollLicitaciones.js';
 import { sendWhatsAppTemplate } from '../whatsapp.js';
 import { alert } from '../ingest/bdns.js';
 import { pingIndexNow } from '../indexnow.js';
-import { grantPath, BASE_URL } from '../seoUtils.js';
+import { grantPath, licitacionPath, BASE_URL } from '../seoUtils.js';
 
 export const operatorRouter = Router();
 operatorRouter.use('/api/op', requireAuth('operator'));
@@ -103,6 +103,8 @@ operatorRouter.post('/api/op/licitaciones/:expediente/publish', (req, res) => {
   const { changes } = db.prepare('UPDATE licitacion_row SET published = ? WHERE expediente = ?')
     .run(req.body?.published ? 1 : 0, req.params.expediente);
   if (!changes) return res.status(404).json({ error: 'no encontrado' });
+  const row = db.prepare('SELECT id, titulo, expediente FROM licitacion_row WHERE expediente = ?').get(req.params.expediente);
+  if (row) pingIndexNow(BASE_URL + licitacionPath(row));
   res.json({ ok: true });
 });
 
@@ -115,6 +117,11 @@ operatorRouter.post('/api/op/licitaciones/publish-batch', (req, res) => {
     WHERE expediente = ? AND resumen IS NOT NULL AND estado = 'licitacion'`);
   const run = db.transaction((list) => list.reduce((n, exp) => n + publish.run(exp).changes, 0));
   const published = run(ids);
+
+  const newlyPublished = db.prepare(`SELECT id, titulo, expediente FROM licitacion_row
+    WHERE expediente IN (${ids.map(() => '?').join(',')}) AND published = 1`).all(...ids);
+  if (newlyPublished.length) pingIndexNow(newlyPublished.map(l => BASE_URL + licitacionPath(l)));
+
   res.json({ ok: true, published, skipped: ids.length - published });
 });
 

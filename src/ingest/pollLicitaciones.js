@@ -11,15 +11,17 @@ import { alert } from './bdns.js';
 import { walkFeed } from './placsp.js';
 import { prepareEnrichment } from './enrichLicitacion.js';
 import { enqueueLicitacionJobs } from './queue.js';
+import { pingIndexNow } from '../indexnow.js';
+import { BASE_URL, licitacionPath } from '../seoUtils.js';
 
 const MAX_PAGES = Number(process.env.PLACSP_MAX_PAGES || 15);
 
 export async function pollLicitacionesOnce() {
   const known = new Map(
-    db.prepare('SELECT expediente, updated_at FROM licitacion_row').all()
-      .map(r => [r.expediente, r.updated_at])
+    db.prepare('SELECT expediente, updated_at, estado, published, id, titulo FROM licitacion_row').all()
+      .map(r => [r.expediente, r])
   );
-  const isCurrent = (e) => known.get(e.expediente) === e.updated;
+  const isCurrent = (e) => known.get(e.expediente)?.updated_at === e.updated;
 
   const entries = await walkFeed(
     (pageEntries) => pageEntries.length > 0 && pageEntries.every(isCurrent),
@@ -27,16 +29,26 @@ export async function pollLicitacionesOnce() {
   );
 
   const toEnrich = [];
+  // estado matters more here than status does for grants: anuncio_previo -> licitacion is
+  // the moment a page goes from "nothing to do yet" to actually actionable, and any estado
+  // change on an already-published (already-indexed) row means its content/banner just
+  // changed - both worth telling IndexNow about, same as grants' OPEN->CLOSED sweep.
+  const estadoChanged = [];
   let unchanged = 0, prepFailed = 0;
   for (const e of entries) {
     if (isCurrent(e)) { unchanged++; continue; }
+    const prev = known.get(e.expediente);
     try {
       toEnrich.push(await prepareEnrichment(e));
+      if (prev?.published && prev.estado !== e.estado) {
+        estadoChanged.push({ id: prev.id, titulo: prev.titulo, expediente: e.expediente });
+      }
     } catch (err) {
       prepFailed++;
       alert('placsp_enrich', `expediente ${e.expediente}: ${err.message}`);
     }
   }
+  if (estadoChanged.length) pingIndexNow(estadoChanged.map(l => BASE_URL + licitacionPath(l)));
 
   const { queued } = await enqueueLicitacionJobs(toEnrich);
   console.log(`placsp poll done: ${queued} queued for enrichment, ${unchanged} unchanged, `
