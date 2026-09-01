@@ -7,6 +7,8 @@ import { pollOnce } from '../ingest/poll.js';
 import { pollLicitacionesOnce } from '../ingest/pollLicitaciones.js';
 import { sendWhatsAppTemplate } from '../whatsapp.js';
 import { alert } from '../ingest/bdns.js';
+import { pingIndexNow } from '../indexnow.js';
+import { grantPath, BASE_URL } from '../seoUtils.js';
 
 export const operatorRouter = Router();
 operatorRouter.use('/api/op', requireAuth('operator'));
@@ -56,6 +58,10 @@ operatorRouter.post('/api/op/grants/:id/publish', (req, res) => {
     ? 'plazo calculado sin confirmar — se publicará como fecha estimada (*)' : null;
   db.prepare(`UPDATE grant_row SET published = ?, status = CASE WHEN ? = 1 AND status = 'ANNOUNCED' THEN 'OPEN' ELSE status END WHERE id = ?`)
     .run(req.body?.published ? 1 : 0, req.body?.published ? 1 : 0, req.params.id);
+  // §6: publish/unpublish is an "alta o cambio de estado" either way - the ficha's
+  // content or its very existence (200 vs 404) just changed, worth a recrawl either way.
+  const row = db.prepare('SELECT bdns_ref, plain_title, title FROM grant_row WHERE id = ?').get(req.params.id);
+  if (row) pingIndexNow(BASE_URL + grantPath(row));
   res.json({ ok: true, warning });
 });
 
@@ -75,6 +81,11 @@ operatorRouter.post('/api/op/grants/publish-batch', (req, res) => {
 
   const estimated = db.prepare(`SELECT COUNT(*) c FROM grant_row
     WHERE published = 1 AND deadline_source = 'computed' AND deadline_confirmed = 0`).get().c;
+
+  const newlyPublished = db.prepare(`SELECT bdns_ref, plain_title, title FROM grant_row
+    WHERE id IN (${ids.map(() => '?').join(',')}) AND published = 1`).all(...ids);
+  if (newlyPublished.length) pingIndexNow(newlyPublished.map(g => BASE_URL + grantPath(g)));
+
   res.json({ ok: true, published, skipped: ids.length - published, estimated_deadlines: estimated });
 });
 

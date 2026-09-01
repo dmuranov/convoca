@@ -136,6 +136,12 @@
 <script>
 document.getElementById('yr').textContent = new Date().getFullYear();
 const eur = (n) => n == null ? null : Number(n).toLocaleString('es-ES') + ' €';
+// Mirrors slugify()/grantPath() in src/routes/seo.js - bdns_ref alone resolves the page
+// even if this drifts from the server's slug (title re-enriched, etc), but matching keeps
+// the same URL search engines see rather than creating a second, uncanonicalised one.
+const grantPath = (g) => `/subvenciones/${(g.plain_title || g.title || '')
+  .normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
+  .replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 80) || 'convocatoria'}-${g.bdns_ref}/`;
 // Grant text is third-party (BDNS + model output) and the grid is built with innerHTML.
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, c =>
   ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -224,7 +230,7 @@ function render() {
 
     return `<article class="grant-card">
       <div class="org">${esc(g.granting_body || '')} ${badge}</div>
-      <h4>${esc(head)}</h4>
+      <h4><a href="${esc(grantPath(g))}">${esc(head)}</a></h4>
       <p class="desc">${esc(g.ai_summary || '')}</p>
       <div>
         <span class="chip"><span class="k">Cuantía</span><span class="v">${amount}</span></span>

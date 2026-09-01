@@ -8,6 +8,11 @@ import { publicRouter, CONTACT_RETENTION_DAYS } from './src/routes/public.js';
 import { panelRouter } from './src/routes/panel.js';
 import { operatorRouter } from './src/routes/operator.js';
 import { webhooksRouter } from './src/routes/webhooks.js';
+import { seoRouter } from './src/routes/seo.js';
+import { seoHubsRouter } from './src/routes/seoHubs.js';
+import { sitemapRouter } from './src/routes/sitemap.js';
+import { pingIndexNow } from './src/indexnow.js';
+import { grantPath, BASE_URL } from './src/seoUtils.js';
 import { login, logout, loginThrottled, redeemInvite, sessionUser,
          setSessionCookie, clearSessionCookie, seedOperator } from './src/auth.js';
 import { pollOnce } from './src/ingest/poll.js';
@@ -67,6 +72,33 @@ app.use(publicRouter);
 app.use(panelRouter);
 app.use(operatorRouter);
 app.use(webhooksRouter);
+app.use(seoRouter);
+app.use(seoHubsRouter);
+app.use(sitemapRouter);
+
+// robots.txt (plan §0/§6) - low-SEO-value paths disallowed to conserve a new domain's
+// small crawl budget; everything under /subvenciones/ and /ayudas/ (the pages worth
+// crawling) stays allowed by the default-allow.
+app.get('/robots.txt', (req, res) => {
+  res.type('text/plain').send([
+    'User-agent: *',
+    'Allow: /',
+    'Disallow: /api/',
+    'Disallow: /panel',
+    'Disallow: /entrar',
+    'Disallow: /registro',
+    'Disallow: /webhooks/',
+    '',
+    `Sitemap: ${process.env.BASE_URL || 'https://plazoabierto.es'}/sitemap_index.xml`,
+    '',
+  ].join('\n'));
+});
+
+// IndexNow key verification file (src/indexnow.js) - only registered when a key is
+// actually configured, so a bare-env deploy doesn't serve a 200 for "undefined.txt".
+if (process.env.INDEXNOW_KEY) {
+  app.get(`/${process.env.INDEXNOW_KEY}.txt`, (req, res) => res.type('text/plain').send(process.env.INDEXNOW_KEY));
+}
 
 // ---- pages ----
 const web = (f) => path.join(__dirname, 'web', f);
@@ -110,11 +142,18 @@ cron.schedule('30 4 * * *', () => {
 
   const today = new Date().toISOString().slice(0, 10);
   const nowIso = new Date().toISOString();
+  // Read the about-to-close published grants first (only those have an indexable ficha
+  // worth telling IndexNow about - see plan §6 "en cada cambio de estado").
+  const closingSoon = db.prepare(`
+    SELECT bdns_ref, plain_title, title FROM grant_row
+    WHERE status = 'OPEN' AND published = 1 AND deadline_date IS NOT NULL AND deadline_date < ?
+  `).all(today);
   const closed = db.prepare(`
     UPDATE grant_row SET status = 'CLOSED', closed_at = ?
     WHERE status = 'OPEN' AND deadline_date IS NOT NULL AND deadline_date < ?
   `).run(nowIso, today);
   if (closed.changes) console.log(`closed ${closed.changes} grant(s) past their deadline`);
+  if (closingSoon.length) pingIndexNow(closingSoon.map(g => BASE_URL + grantPath(g)));
 
   const dayAgo = new Date(Date.now() - 24 * 3600_000).toISOString();
   const archived = db.prepare(`
