@@ -16,15 +16,23 @@ function getPool() {
   return pool;
 }
 
+// Postgres text columns reject the NUL byte outright; pdf-parse occasionally leaves one in
+// extracted text from a malformed PDF. Built via fromCharCode/split/join rather than a
+// regex literal so the byte never has to appear directly in this source file.
+const NUL = String.fromCharCode(0);
+const stripNul = (s) => s.split(NUL).join('');
+
 async function insertJobs(jobType, rows) {
   if (!rows.length) return { queued: 0 };
   const client = await getPool().connect();
   try {
     await client.query('BEGIN');
     for (const r of rows) {
+      // One bad row must not roll back the whole batch's transaction - seen for real
+      // recovering 2026-09-01's stranded licitaciones.
       await client.query(
         `INSERT INTO job (job_type, ref_id, playbook) VALUES ($1, $2, $3)`,
-        [jobType, r.refId, r.context],
+        [jobType, r.refId, stripNul(r.context)],
       );
     }
     await client.query('COMMIT');
