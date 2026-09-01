@@ -27,6 +27,14 @@ export function grantPath(g) {
   return `/subvenciones/${slugify(g.plain_title || g.title)}-${g.bdns_ref}/`;
 }
 
+// licitacion_row has no bdns_ref-shaped clean identifier - PLACSP expedientes routinely
+// contain slashes and spaces ("CMA 01/2026") that break a URL path segment, which is
+// exactly why enrichBatch's custom_id already had to use the row's own uuid instead of the
+// expediente (see enrichLicitacion.js). Reuse that same id here, for the same reason.
+export function licitacionPath(l) {
+  return `/licitaciones/${slugify(l.titulo || l.expediente)}-${l.id}/`;
+}
+
 // ---- hub taxonomies (fixed, not discovered from the DB - freeze the URL shape once) ----
 
 export const CCAA_SLUGS = new Map(Object.values(CCAA).map(name => [slugify(name), name]));

@@ -21,7 +21,7 @@ import { anthropic, MODEL } from '../llm.js';
 const require = createRequire(import.meta.url);
 const pdfParse = require('pdf-parse');
 
-const ESTADO_LABEL = {
+export const ESTADO_LABEL = {
   anuncio_previo: 'Anuncio previo (todavía no se puede presentar oferta)',
   licitacion: 'En plazo (aceptando ofertas)',
   pendiente_adjudicacion: 'Plazo de presentación cerrado, pendiente de adjudicación',

@@ -10,6 +10,7 @@ import { operatorRouter } from './src/routes/operator.js';
 import { webhooksRouter } from './src/routes/webhooks.js';
 import { seoRouter } from './src/routes/seo.js';
 import { seoHubsRouter } from './src/routes/seoHubs.js';
+import { seoLicitacionesRouter } from './src/routes/seoLicitaciones.js';
 import { sitemapRouter } from './src/routes/sitemap.js';
 import { pingIndexNow } from './src/indexnow.js';
 import { grantPath, BASE_URL } from './src/seoUtils.js';
@@ -74,6 +75,7 @@ app.use(operatorRouter);
 app.use(webhooksRouter);
 app.use(seoRouter);
 app.use(seoHubsRouter);
+app.use(seoLicitacionesRouter);
 app.use(sitemapRouter);
 
 // robots.txt (plan §0/§6) - low-SEO-value paths disallowed to conserve a new domain's

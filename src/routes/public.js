@@ -100,7 +100,7 @@ publicRouter.get('/api/grants', (req, res) => {
 // handling) but aren't bidding opportunities any more, so they stay out of the public list.
 publicRouter.get('/api/licitaciones', (req, res) => {
   const rows = db.prepare(`
-    SELECT expediente, organo, tipo_contrato, procedimiento, cpv, valor_estimado,
+    SELECT id, expediente, organo, tipo_contrato, procedimiento, cpv, valor_estimado,
            presupuesto_base, iva, fecha_limite, lugar, ccaa, duracion, num_lotes, pliegos,
            source_url, titulo, resumen, quien_puede_interesarle, que_hay_que_hacer,
            requisitos_clave, complejidad, complejidad_motivo
