@@ -18,6 +18,11 @@ import { MODEL } from '../src/llm.js';
 
 const execFileAsync = promisify(execFile);
 const JOB_TIMEOUT_MS = Number(process.env.WORKER_JOB_TIMEOUT_MS || 5 * 60_000);
+// Tripwire, not a documented Anthropic limit - a gradual climb in daily job volume is
+// invisible without this; a threshold crossing in the log is not. 300/day is ~2-3x current
+// combined grants+licitaciones volume. Fires again at every multiple (600, 900, ...) so
+// growth past the first crossing keeps escalating instead of going quiet again.
+const DAILY_ALERT_THRESHOLD = Number(process.env.WORKER_DAILY_ALERT_THRESHOLD || 300);
 
 const JOB_TYPES = {
   enrich_grant: {
@@ -33,6 +38,21 @@ const JOB_TYPES = {
     apply: (refId, label, ai) => applyLicitacionResult(label, ai),
   },
 };
+
+// Counts every job row created today, not just this one - approximates claude-cli
+// invocations/day closely enough for a tripwire (a job only isn't an invocation yet if
+// it's still pending/processing, which is transient given the 20s worker cadence).
+async function logDailyVolume(pool) {
+  const { rows } = await pool.query(
+    `SELECT COUNT(*)::int AS n FROM job WHERE created_at >= date_trunc('day', now())`,
+  );
+  const n = rows[0].n;
+  console.log(`worker: ${n} job(s) today`);
+  if (DAILY_ALERT_THRESHOLD > 0 && n % DAILY_ALERT_THRESHOLD === 0) {
+    alert('worker_volume', `claude-cli subscription ingest: ${n} jobs today `
+      + `(threshold ${DAILY_ALERT_THRESHOLD}) - check Claude Pro usage before this grows further`);
+  }
+}
 
 async function claimJob(client) {
   await client.query('BEGIN');
@@ -90,6 +110,7 @@ async function main() {
         [job.id, `unknown job_type ${job.job_type}`],
       );
       console.error(`worker: job ${job.id} unknown job_type ${job.job_type}`);
+      await logDailyVolume(pool);
       return;
     }
     const label = cfg.label(job.ref_id);
@@ -110,6 +131,7 @@ async function main() {
       alert('extract', `job ${job.id} ${label}: ${e.message}`);
       console.error(`worker: job ${job.id} (${label}) failed: ${e.message}`);
     }
+    await logDailyVolume(pool);
   } finally {
     await pool.end();
   }
