@@ -25,7 +25,16 @@ const MAX_PAGES = Number(process.env.PLACSP_MAX_PAGES || 15);
 // rate limit. Deliberately small; see convoca-claude-cli-prod-risk memory.
 const BACKLOG_DRAIN_CAP = Number(process.env.LICITACION_BACKLOG_CAP || 50);
 
-export async function pollLicitacionesOnce() {
+// Guards against a second concurrent walk (cron firing while a manual "Sondear PLACSP"
+// trigger is still running, or an impatient double-click) - two walkFeed runs against the
+// same feed would both prepare and enqueue the same entries, doubling pliego fetches and
+// queue volume against the same subscription rate limit. Single Node process
+// (pm2 instances:1), so a plain module-level flag is safe with no interleaving between
+// the check and the set.
+let running = false;
+export function pollStatus() { return running; }
+
+async function runPoll() {
   // titulo IS NOT NULL is part of "current", not just updated_at matching the feed - a row
   // whose deterministic fields got written by prepareEnrichment() but whose AI job never
   // got enqueued (a poll interrupted mid-run, e.g. a memory-restart) must still look
@@ -67,6 +76,13 @@ export async function pollLicitacionesOnce() {
     alert('placsp_poll', 'zero entries returned from the PLACSP feed - check reachability');
   }
   return queued;
+}
+
+export async function pollLicitacionesOnce() {
+  if (running) { console.log('placsp poll: already running, skipping this trigger'); return 0; }
+  running = true;
+  try { return await runPoll(); }
+  finally { running = false; }
 }
 
 // Re-enriches rows the poll already wrote deterministic fields for but never got an AI

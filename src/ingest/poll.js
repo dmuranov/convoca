@@ -59,7 +59,15 @@ export function screen(detail, today = new Date().toISOString().slice(0, 10)) {
   return null;
 }
 
-export async function pollOnce() {
+// Guards against a second concurrent walk (cron firing while a manual "Sondear BDNS"
+// trigger is still running, or an impatient double-click) - two runs against the same
+// window would both prepare and enqueue the same fresh rows, doubling BDNS/PDF fetches
+// and job-queue volume for nothing. Single Node process (pm2 instances:1), so a plain
+// module-level flag is safe with no interleaving between the check and the set.
+let running = false;
+export function pollStatus() { return running; }
+
+async function runPoll() {
   const today = new Date().toISOString().slice(0, 10);
   const from = new Date(Date.now() - LOOKBACK_DAYS * 86400000).toISOString().slice(0, 10);
   const seen = new Map(); // numeroConvocatoria -> search row
@@ -86,7 +94,12 @@ export async function pollOnce() {
     }
   }
 
-  const exists = db.prepare('SELECT 1 FROM grant_row WHERE bdns_ref = ?');
+  // A row is only "done" if it was screened out or successfully enriched, not merely
+  // "exists" - the same class of bug pollLicitaciones.js had (2026-09-01): a crash
+  // mid-loop below leaves a row inserted with neither skip_reason nor plain_title set,
+  // and treating existence alone as "already handled" would strand it forever, since
+  // BDNS gives no per-row signal that would ever make it look "changed" again.
+  const existing = db.prepare('SELECT id, skip_reason, plain_title FROM grant_row WHERE bdns_ref = ?');
   // `region` is deliberately left for enrichment: the search row's nivel2 is the granting
   // body's name (a municipality, a mancomunidad), not a territory. See ingest/regions.js.
   const ins = db.prepare(`INSERT INTO grant_row
@@ -95,16 +108,19 @@ export async function pollOnce() {
 
   const fresh = [];
   for (const [ref, row] of seen) {
-    if (exists.get(ref)) continue;
-    const id = uuid();
-    ins.run(id, ref, row.descripcion || '(sin título)',
-      [row.nivel2, row.nivel3].filter(Boolean).join(' — '),
-      levelFromNivel1(row.nivel1), row.fechaRecepcion || null,
-      `https://www.infosubvenciones.es/bdnstrans/GE/es/convocatoria/${ref}`);
+    const prior = existing.get(ref);
+    if (prior && (prior.skip_reason != null || prior.plain_title != null)) continue;
+    const id = prior?.id || uuid();
+    if (!prior) {
+      ins.run(id, ref, row.descripcion || '(sin título)',
+        [row.nivel2, row.nivel3].filter(Boolean).join(' — '),
+        levelFromNivel1(row.nivel1), row.fechaRecepcion || null,
+        `https://www.infosubvenciones.es/bdnstrans/GE/es/convocatoria/${ref}`);
+    }
     fresh.push({ id, ref, row });
   }
   console.log(`poll: ${seen.size} in ${LOOKBACK_DAYS}-day window`
-    + `${regions.length ? ` (regions ${regions.join(',')})` : ' (Spain)'}, ${fresh.length} new`);
+    + `${regions.length ? ` (regions ${regions.join(',')})` : ' (Spain)'}, ${fresh.length} new/stranded`);
   // A quiet day (fresh=0, everything already known) is normal. Zero results from BDNS
   // itself over a full 7-day nationwide window never legitimately happens - it means the
   // search API broke silently (auth, schema change, empty response) with no exception to
@@ -149,6 +165,13 @@ export async function pollOnce() {
   const { queued } = await enqueueJobs(toEnrich);
   console.log(`poll done: ${queued} queued for enrichment (convoca-worker drains via claude-cli), ${skipped} skipped (not applicable), ${prepFailed} prep failed`);
   return queued;
+}
+
+export async function pollOnce() {
+  if (running) { console.log('poll: already running, skipping this trigger'); return 0; }
+  running = true;
+  try { return await runPoll(); }
+  finally { running = false; }
 }
 
 if (process.argv[1] && import.meta.url.endsWith(process.argv[1].replace(/\\/g, '/').split('/').pop())) {

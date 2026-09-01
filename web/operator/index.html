@@ -190,11 +190,19 @@ async function publish(id, on) {
   const r = await post(`/api/op/grants/${id}/publish`, { published: !!on });
   if (r.error) alert(r.error); else loadGrants();
 }
+// Above this, the confirm names the IndexNow submission explicitly - a batch this size
+// goes out as one IndexNow ping with that many URLs, and a still-new domain (verified
+// 2026-09-01) dumping its whole corpus in a single submission is the shape that gets a
+// search engine to deprioritize it, not the shape that gets it crawled faster.
+const INDEXNOW_WARN_THRESHOLD = 50;
 $('bulk-publish').addEventListener('click', async () => {
   if (!LISTED.length) return;
+  const big = LISTED.length > INDEXNOW_WARN_THRESHOLD
+    ? `\n\nEsto envía ${LISTED.length} URLs a IndexNow en un solo lote - un dominio nuevo `
+      + 'que publica todo de golpe puede penalizar el crawl en vez de acelerarlo.' : '';
   if (!confirm(`Publicar ${LISTED.length} convocatorias en el directorio público.\n\n`
     + 'Los resúmenes están redactados automáticamente y las fechas calculadas saldrán '
-    + 'marcadas como estimadas (*). ¿Continuar?')) return;
+    + `marcadas como estimadas (*).${big}\n\n¿Continuar?`)) return;
   $('bulk-publish').disabled = true;
   // The endpoint caps a batch at 500.
   let published = 0, skipped = 0;
@@ -247,7 +255,10 @@ async function publishLic(expediente, on) {
 }
 $('bulk-publish-lic').addEventListener('click', async () => {
   if (!LISTED_LIC.length) return;
-  if (!confirm(`Publicar ${LISTED_LIC.length} licitaciones en el directorio público. ¿Continuar?`)) return;
+  const big = LISTED_LIC.length > INDEXNOW_WARN_THRESHOLD
+    ? `\n\nEsto envía ${LISTED_LIC.length} URLs a IndexNow en un solo lote - un dominio nuevo `
+      + 'que publica todo de golpe puede penalizar el crawl en vez de acelerarlo.' : '';
+  if (!confirm(`Publicar ${LISTED_LIC.length} licitaciones en el directorio público.${big}\n\n¿Continuar?`)) return;
   $('bulk-publish-lic').disabled = true;
   let published = 0, skipped = 0;
   for (let i = 0; i < LISTED_LIC.length; i += 500) {
@@ -260,14 +271,15 @@ $('bulk-publish-lic').addEventListener('click', async () => {
 });
 $('pendingonly-lic').addEventListener('change', loadLicitaciones);
 // Server replies immediately and keeps working in the background - a real PLACSP walk
-// can run 10+ minutes, too long to hold the button on "sondeando..." for. Re-enable after
-// a fixed pause rather than waiting on a response; check the list/alerts later for the
-// actual result.
+// can run 10+ minutes, too long to hold the button disabled for. The server itself now
+// refuses a second concurrent walk (pollLicitaciones.js's running flag), so there's
+// nothing left for this button to guard against - it never disables, and never claims
+// "done" for something that's still running. Check the list/alerts later for the result.
 $('pollnow-lic').addEventListener('click', async () => {
-  $('pollnow-lic').disabled = true; $('pollnow-lic').textContent = 'sondeo iniciado…';
   const r = await post('/api/op/licitaciones/poll');
-  if (r.error) { alert(r.error); $('pollnow-lic').disabled = false; $('pollnow-lic').textContent = 'Sondear PLACSP'; return; }
-  setTimeout(() => { $('pollnow-lic').disabled = false; $('pollnow-lic').textContent = 'Sondear PLACSP'; }, 15000);
+  if (r.error) return alert(r.error);
+  alert(r.running ? 'Ya hay un sondeo PLACSP en curso - espera a que termine.'
+    : 'Sondeo PLACSP iniciado en segundo plano (puede tardar varios minutos).');
 });
 
 async function candidates(id) {
@@ -348,12 +360,13 @@ $('invform').addEventListener('submit', async (ev) => {
   loadInvites();
 });
 
-// Same fire-and-forget handling as the PLACSP button above.
+// Same fire-and-forget handling as the PLACSP button above - server-side running guard
+// means this button never needs to disable itself either.
 $('pollnow').addEventListener('click', async () => {
-  $('pollnow').disabled = true; $('pollnow').textContent = 'sondeo iniciado…';
   const r = await post('/api/op/poll');
-  if (r.error) { alert(r.error); $('pollnow').disabled = false; $('pollnow').textContent = 'Sondear BDNS'; return; }
-  setTimeout(() => { $('pollnow').disabled = false; $('pollnow').textContent = 'Sondear BDNS'; }, 15000);
+  if (r.error) return alert(r.error);
+  alert(r.running ? 'Ya hay un sondeo BDNS en curso - espera a que termine.'
+    : 'Sondeo BDNS iniciado en segundo plano (puede tardar varios minutos).');
 });
 $('pendingonly').addEventListener('change', loadGrants);
 $('out').addEventListener('click', async () => { await fetch('/api/logout', { method: 'POST' }); location.href = '/'; });

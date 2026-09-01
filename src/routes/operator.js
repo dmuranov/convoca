@@ -3,8 +3,8 @@ import { Router } from 'express';
 import { db, uuid } from '../db.js';
 import { requireAuth, createInvite } from '../auth.js';
 import { candidateEntities } from '../ingest/match.js';
-import { pollOnce } from '../ingest/poll.js';
-import { pollLicitacionesOnce } from '../ingest/pollLicitaciones.js';
+import { pollOnce, pollStatus as bdnsPollStatus } from '../ingest/poll.js';
+import { pollLicitacionesOnce, pollStatus as placspPollStatus } from '../ingest/pollLicitaciones.js';
 import { sendWhatsAppTemplate } from '../whatsapp.js';
 import { alert } from '../ingest/bdns.js';
 import { pingIndexNow } from '../indexnow.js';
@@ -143,6 +143,10 @@ operatorRouter.post('/api/op/licitaciones/publish-batch', (req, res) => {
 // connection outright. Reply immediately; check the alerts card / reload the list for
 // the actual result once it's done.
 operatorRouter.post('/api/op/licitaciones/poll', (req, res) => {
+  // Checked before calling, not just left to pollLicitacionesOnce's own internal guard,
+  // so a second click gets an honest {running:true} reply instead of the same
+  // {started:true} as the first - the button text was reading as "done" either way.
+  if (placspPollStatus()) return res.json({ ok: true, started: false, running: true });
   pollLicitacionesOnce().catch((e) => alert('placsp_poll', e.message));
   res.json({ ok: true, started: true });
 });
@@ -353,6 +357,7 @@ operatorRouter.post('/api/op/alerts/:id/resolve', (req, res) => {
 // Same fire-and-forget reasoning as the PLACSP poll above: sequential BDNS detail + bases
 // PDF fetches per fresh grant can run minutes, same button-looks-broken risk.
 operatorRouter.post('/api/op/poll', (req, res) => {
+  if (bdnsPollStatus()) return res.json({ ok: true, started: false, running: true });
   pollOnce().catch((e) => alert('poll', e.message));
   res.json({ ok: true, started: true });
 });
