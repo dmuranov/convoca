@@ -10,6 +10,7 @@
     "seed": "node scripts/seed.js",
     "poll": "node src/ingest/poll.js",
     "poll:licitaciones": "node src/ingest/pollLicitaciones.js",
+    "worker": "node scripts/worker.js",
     "test": "node --test"
   },
   "dependencies": {
@@ -20,6 +21,7 @@
     "express": "^4.19.2",
     "fast-xml-parser": "^4.5.7",
     "node-cron": "^3.0.3",
-    "pdf-parse": "^1.1.1"
+    "pdf-parse": "^1.1.1",
+    "pg": "^8.23.0"
   }
 }

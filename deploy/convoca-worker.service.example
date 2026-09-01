@@ -1,0 +1,15 @@
+# Claims and runs exactly one queued playbook job via claude-cli, then exits.
+# Fired repeatedly by convoca-worker.timer, not by Restart= — each run is a fresh process,
+# same as the fresh claude-cli subprocess it spawns.
+#
+# Install: sudo cp deploy/convoca-worker.* /etc/systemd/system/ (drop the .example suffix)
+#          sudo systemctl daemon-reload && sudo systemctl enable --now convoca-worker.timer
+[Unit]
+Description=Convoca playbook worker (one queued job per run)
+After=network.target postgresql.service
+
+[Service]
+Type=oneshot
+User=azureuser
+WorkingDirectory=/home/azureuser/convoca
+ExecStart=/usr/bin/node scripts/worker.js

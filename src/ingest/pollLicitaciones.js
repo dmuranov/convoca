@@ -9,7 +9,8 @@ import 'dotenv/config';
 import { db } from '../db.js';
 import { alert } from './bdns.js';
 import { walkFeed } from './placsp.js';
-import { prepareEnrichment, enrichBatch } from './enrichLicitacion.js';
+import { prepareEnrichment } from './enrichLicitacion.js';
+import { enqueueLicitacionJobs } from './queue.js';
 
 const MAX_PAGES = Number(process.env.PLACSP_MAX_PAGES || 15);
 
@@ -37,15 +38,14 @@ export async function pollLicitacionesOnce() {
     }
   }
 
-  const { enriched, failed: batchFailed } = await enrichBatch(toEnrich);
-  const failed = prepFailed + batchFailed;
-  console.log(`placsp poll done: ${enriched} enriched (awaiting publish), ${unchanged} unchanged, `
-    + `${failed} failed (of ${entries.length} entries seen)`);
-  return enriched;
+  const { queued } = await enqueueLicitacionJobs(toEnrich);
+  console.log(`placsp poll done: ${queued} queued for enrichment, ${unchanged} unchanged, `
+    + `${prepFailed} prep failed (of ${entries.length} entries seen)`);
+  return queued;
 }
 
 if (process.argv[1] && import.meta.url.endsWith(process.argv[1].replace(/\\/g, '/').split('/').pop())) {
   pollLicitacionesOnce()
-    .then(n => { console.log(`poll done, ${n} enriched`); process.exit(0); })
+    .then(n => { console.log(`poll done, ${n} queued`); process.exit(0); })
     .catch(e => { alert('placsp_poll', e.message); process.exit(1); });
 }

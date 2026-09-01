@@ -14,7 +14,8 @@
 import 'dotenv/config';
 import { db, uuid } from '../db.js';
 import { bdnsGet, ddmmyyyy, alert } from './bdns.js';
-import { prepareEnrichment, enrichBatch } from './enrich.js';
+import { prepareEnrichment } from './enrich.js';
+import { enqueueJobs } from './queue.js';
 
 const LOOKBACK_DAYS = Number(process.env.POLL_LOOKBACK_DAYS || 7);
 const PAGE_SIZE = 200;
@@ -111,8 +112,9 @@ export async function pollOnce() {
   // The BDNS detail + bases-PDF fetches below stay sequential and throttled (that API
   // blocks noisy clients); the LLM call does not — prepareEnrichment() only does the
   // deterministic work (deadline, territory, PDF text) and every screened-in grant is
-  // queued into a single Batch API call afterward instead of paying list price one at a
-  // time. See src/ingest/enrich.js.
+  // queued as a Postgres job row instead, drained by convoca-worker.timer (systemd) one
+  // at a time via claude-cli under subscription auth. See src/ingest/queue.js and
+  // scripts/worker.js.
   const toEnrich = [];
   let skipped = 0, prepFailed = 0;
   for (const g of fresh) {
@@ -135,14 +137,13 @@ export async function pollOnce() {
     await sleep(THROTTLE_MS);
   }
 
-  const { enriched, failed: batchFailed } = await enrichBatch(toEnrich);
-  const failed = prepFailed + batchFailed;
-  console.log(`poll done: ${enriched} enriched (awaiting publish), ${skipped} skipped (not applicable), ${failed} failed`);
-  return enriched;
+  const { queued } = await enqueueJobs(toEnrich);
+  console.log(`poll done: ${queued} queued for enrichment (convoca-worker drains via claude-cli), ${skipped} skipped (not applicable), ${prepFailed} prep failed`);
+  return queued;
 }
 
 if (process.argv[1] && import.meta.url.endsWith(process.argv[1].replace(/\\/g, '/').split('/').pop())) {
   pollOnce()
-    .then(n => { console.log(`poll done, ${n} enriched`); process.exit(0); })
+    .then(n => { console.log(`poll done, ${n} queued`); process.exit(0); })
     .catch(e => { alert('poll', e.message); process.exit(1); });
 }

@@ -204,7 +204,7 @@ export async function prepareEnrichment(grantId, bdnsRef, { detail: pre } = {}) 
 // scripts/backfill-batch.js's applyResult, deliberately — a batch that never comes back
 // (timeout, crash) leaves rows exactly in the state that script's default selection
 // already looks for ("missing plain-language fields"), so it doubles as the recovery path.
-function applyAiResult(grantId, bdnsRef, ai) {
+export function applyAiResult(grantId, bdnsRef, ai) {
   db.prepare(`UPDATE grant_row SET
       ai_summary = COALESCE(?, ai_summary), plain_title = COALESCE(?, plain_title),
       plain_explainer = COALESCE(?, plain_explainer), plain_checklist = COALESCE(?, plain_checklist),

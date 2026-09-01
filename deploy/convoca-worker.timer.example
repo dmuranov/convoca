@@ -1,0 +1,10 @@
+[Unit]
+Description=Run convoca-worker.service every 20s to drain the job queue
+
+[Timer]
+OnBootSec=30s
+OnUnitActiveSec=20s
+AccuracySec=5s
+
+[Install]
+WantedBy=timers.target
