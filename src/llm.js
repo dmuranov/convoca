@@ -1,6 +1,12 @@
 import Anthropic from '@anthropic-ai/sdk';
 
-export const anthropic = new Anthropic(); // reads ANTHROPIC_API_KEY from env
+// timeout: without one, a stalled request (seen in production - the licitaciones
+// enrichBatch call hung with no error and no log line, silently zeroing out every poll run
+// since nothing ever threw for the cron handler's catch to alert on) blocks forever instead
+// of failing loud. 60s is generous for a single API call; the batch *processing* wait has
+// its own much longer poll loop (enrich.js/enrichLicitacion.js's BATCH_TIMEOUT_MS) that
+// this doesn't touch - this only bounds each individual HTTP request within it.
+export const anthropic = new Anthropic({ timeout: 60_000 }); // reads ANTHROPIC_API_KEY from env
 
 // Ingest extraction: schema-constrained JSON out of BDNS fields + bases text, one grant
 // ever (see poll.js's dedupe) - not a job that needs Opus. Haiku, and batched (enrich.js

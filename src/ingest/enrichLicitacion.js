@@ -165,22 +165,65 @@ async function llmExtract(context) {
 
 const PLIEGO_THROTTLE_MS = Number(process.env.PLACSP_PLIEGO_THROTTLE_MS || 500);
 const PLIEGO_HEADERS = { 'User-Agent': 'convoca/1.0 (plazoabierto.es)' };
+// pdf-parse only ever handles PDFs, but LegalDocumentReference/TechnicalDocumentReference
+// routinely point at zipped anexo bundles (DEUC.zip, ANEXOS.zip) or Office docs - not
+// transient failures, guaranteed to fail every time. Skip by extension before spending a
+// request on them; not alert-worthy, this is an unsupported format, not a broken fetch.
+const NON_PDF_EXT = /\.(zip|docx?|xlsx?|rar|7z)$/i;
+
+// contrataciondelestado.es sits behind an F5 WAF (Set-Cookie: TS...) that appears to
+// throttle/block bursts of cookie-less requests from the same IP - a nightly run fires
+// dozens of these in a few minutes. Persisting the cookie across requests (fetch() has no
+// jar of its own) keeps the burst looking like one continuing session instead of dozens of
+// fresh ones. Module-level by design: shared across every licitación in a poll run.
+let placspCookie = null;
+
+async function fetchOnePliego(p, attempt = 1) {
+  const headers = { ...PLIEGO_HEADERS };
+  if (placspCookie) headers.Cookie = placspCookie;
+  const res = await fetch(p.url, { headers, signal: AbortSignal.timeout(60000) });
+  const setCookie = res.headers.get('set-cookie');
+  if (setCookie) placspCookie = setCookie.split(';')[0];
+  // One retry on 5xx - the WAF block observed in production is intermittent, not
+  // permanent, and the retry picks up whatever cookie the first attempt just received.
+  if (res.status >= 500 && attempt === 1) {
+    await new Promise(r => setTimeout(r, 1500));
+    return fetchOnePliego(p, 2);
+  }
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const contentType = res.headers.get('content-type') || '';
+  const buf = Buffer.from(await res.arrayBuffer());
+  if (!contentType.includes('pdf')) {
+    console.log(`skipping non-PDF pliego for ${p.nombre}: content-type ${contentType || 'unknown'}`);
+    return null;
+  }
+  const { text: t } = await pdfParse(buf);
+  return t ? `[${p.nombre}]\n${t}` : null;
+}
+
+// Stored raw_text has run past 600KB on real pliegos, but extractContext only ever uses
+// the first 60000 chars of it - the rest just sits resident across every prepared entry in
+// a poll run for no benefit. Cap well above the context slice, not at it, so a future
+// context-window bump doesn't silently start truncating mid-document.
+const MAX_RAW_TEXT = 150_000;
 
 async function fetchPliegosText(pliegos, expediente) {
   const parts = [];
   for (const p of pliegos) {
+    if (NON_PDF_EXT.test(p.nombre)) {
+      console.log(`skipping non-PDF pliego for ${p.nombre}: unsupported extension`);
+      continue;
+    }
     try {
-      const res = await fetch(p.url, { headers: PLIEGO_HEADERS, signal: AbortSignal.timeout(60000) });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const buf = Buffer.from(await res.arrayBuffer());
-      const { text: t } = await pdfParse(buf);
-      if (t) parts.push(`[${p.nombre}]\n${t}`);
+      const part = await fetchOnePliego(p);
+      if (part) parts.push(part);
     } catch (e) {
       alert('fetch_pliego', `expediente ${expediente} ${p.nombre}: ${e.message}`);
     }
     await new Promise(r => setTimeout(r, PLIEGO_THROTTLE_MS));
   }
-  return parts.join('\n\n') || null;
+  const joined = parts.join('\n\n');
+  return joined ? joined.slice(0, MAX_RAW_TEXT) : null;
 }
 
 // -- Deterministic phase: upserts every column except the AI-owned ones. `lic` is a
@@ -215,7 +258,7 @@ export async function prepareEnrichment(lic) {
   return { id, expediente: lic.expediente, context: extractContext({ ...lic, rawText }) };
 }
 
-function applyAiResult(expediente, ai) {
+export function applyAiResult(expediente, ai) {
   db.prepare(`UPDATE licitacion_row SET
       titulo = ?, resumen = ?, quien_puede_interesarle = ?, que_hay_que_hacer = ?,
       requisitos_clave = ?, complejidad = ?, complejidad_motivo = ?, campos_ausentes = ?
