@@ -105,6 +105,15 @@ export async function pollOnce() {
   }
   console.log(`poll: ${seen.size} in ${LOOKBACK_DAYS}-day window`
     + `${regions.length ? ` (regions ${regions.join(',')})` : ' (Spain)'}, ${fresh.length} new`);
+  // A quiet day (fresh=0, everything already known) is normal. Zero results from BDNS
+  // itself over a full 7-day nationwide window never legitimately happens - it means the
+  // search API broke silently (auth, schema change, empty response) with no exception to
+  // catch. Timeouts (llm.js) stop a hung *enrichment* call; this catches a poll that
+  // "succeeds" having done nothing.
+  if (seen.size === 0) {
+    alert('poll', `zero convocatorias returned from BDNS across the ${LOOKBACK_DAYS}-day window`
+      + `${regions.length ? ` (regions ${regions.join(',')})` : ' (Spain)'} - check BDNS reachability`);
+  }
 
   // Rows we skip stay in grant_row unpublished, so they are never reconsidered:
   // the dedupe above means each reference costs at most one detail call, ever.

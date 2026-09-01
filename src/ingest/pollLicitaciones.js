@@ -41,6 +41,12 @@ export async function pollLicitacionesOnce() {
   const { queued } = await enqueueLicitacionJobs(toEnrich);
   console.log(`placsp poll done: ${queued} queued for enrichment, ${unchanged} unchanged, `
     + `${prepFailed} prep failed (of ${entries.length} entries seen)`);
+  // Same reasoning as poll.js: a run where everything was already `unchanged` is a normal
+  // quiet day, but PLACSP returning zero entries at all across a fresh page walk means the
+  // feed itself broke silently, not that nothing happened.
+  if (entries.length === 0) {
+    alert('placsp_poll', 'zero entries returned from the PLACSP feed - check reachability');
+  }
   return queued;
 }
 
