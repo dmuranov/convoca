@@ -4,6 +4,8 @@
 // Computed (unconfirmed) deadlines ARE shown, marked estimated (*) with a
 // disclaimer: the date can move with local holidays / día-hábil counting.
 import { Router } from 'express';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { db, uuid } from '../db.js';
 import { anthropic, CHAT_MODEL } from '../llm.js';
 import { MUNICIPIOS, PEDANIAS, findMunicipio, fold } from '../municipios.js';
@@ -67,9 +69,15 @@ publicRouter.get('/api/municipios', (req, res) => {
   res.json({ matches: [...provs, ...munis, ...peds].slice(0, 10) });
 });
 
+// sha comes from deploy.ps1 writing DEPLOYED_SHA next to server.js - lets deploy.ps1
+// assert the running process actually is the commit it just pushed, instead of a
+// restart succeeding while still serving whatever was deployed last.
+let deployedSha = 'unknown';
+try { deployedSha = readFileSync(join(import.meta.dirname, '../../DEPLOYED_SHA'), 'utf8').trim(); } catch {}
+
 publicRouter.get('/health', (req, res) => {
   const grants = db.prepare('SELECT COUNT(*) c FROM grant_row').get().c;
-  res.json({ ok: true, grants });
+  res.json({ ok: true, grants, sha: deployedSha });
 });
 
 // Public directory: only published OPEN grants. Computed deadlines are shown
