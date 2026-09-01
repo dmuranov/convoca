@@ -136,9 +136,15 @@ operatorRouter.post('/api/op/licitaciones/publish-batch', (req, res) => {
   res.json({ ok: true, published, skipped: ids.length - published });
 });
 
-operatorRouter.post('/api/op/licitaciones/poll', async (req, res) => {
-  try { res.json({ ok: true, new: await pollLicitacionesOnce() }); }
-  catch (e) { res.status(500).json({ error: e.message }); }
+// Fire-and-forget: a real PLACSP walk can run 10+ minutes (pliego PDF fetch/parse per
+// entry, sequential and throttled - see pollLicitaciones.js), so awaiting it inline made
+// this button look broken - the browser just sits on "sondeando..." past any reasonable
+// wait, and a pm2 memory-restart mid-run (already happened once, 2026-09-01) drops the
+// connection outright. Reply immediately; check the alerts card / reload the list for
+// the actual result once it's done.
+operatorRouter.post('/api/op/licitaciones/poll', (req, res) => {
+  pollLicitacionesOnce().catch((e) => alert('placsp_poll', e.message));
+  res.json({ ok: true, started: true });
 });
 
 // Builds the "papers needed" line from plain_checklist. Each item is an
@@ -344,9 +350,11 @@ operatorRouter.post('/api/op/alerts/:id/resolve', (req, res) => {
   db.prepare('UPDATE ingest_alert SET resolved = 1 WHERE id = ?').run(req.params.id);
   res.json({ ok: true });
 });
-operatorRouter.post('/api/op/poll', async (req, res) => {
-  try { res.json({ ok: true, new: await pollOnce() }); }
-  catch (e) { res.status(500).json({ error: e.message }); }
+// Same fire-and-forget reasoning as the PLACSP poll above: sequential BDNS detail + bases
+// PDF fetches per fresh grant can run minutes, same button-looks-broken risk.
+operatorRouter.post('/api/op/poll', (req, res) => {
+  pollOnce().catch((e) => alert('poll', e.message));
+  res.json({ ok: true, started: true });
 });
 
 // ---- metrics (§7) ----

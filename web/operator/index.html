@@ -18,13 +18,22 @@
 <header class="site">
   <div class="wrap">
     <a class="logo" href="/">Plazo<span class="b">Abierto</span>&nbsp;· consola</a>
-    <div>
-      <button class="btn small" id="pollnow">Sondear BDNS ahora</button>
-      <button class="btn small" id="pollnow-lic">Sondear PLACSP ahora</button>
-      <button class="btn ghost small" id="out">Salir</button>
-    </div>
+    <button class="btn ghost small" id="out">Salir</button>
   </div>
 </header>
+<!-- Every action that matters day to day, in one row, nothing above it to scroll past -
+     see 2026-09-01 feedback: poll + bulk-publish used to sit below several always-open
+     cards and a list that can now run past a thousand rows. -->
+<div class="wrap card" id="action-bar" style="position:sticky; top:0; z-index:1; display:flex; gap:.5rem; align-items:center; flex-wrap:wrap; padding:.6rem 1.2rem">
+  <button class="btn small" id="pollnow">Sondear BDNS</button>
+  <button class="btn small" id="pollnow-lic">Sondear PLACSP</button>
+  <span style="width:1px; align-self:stretch; background:var(--line)"></span>
+  <button class="btn small" id="bulk-publish" type="button">Publicar convocatorias</button>
+  <span class="muted" id="bulk-note" style="font-size:.85rem"></span>
+  <span style="width:1px; align-self:stretch; background:var(--line)"></span>
+  <button class="btn small" id="bulk-publish-lic" type="button">Publicar licitaciones</button>
+  <span class="muted" id="bulk-note-lic" style="font-size:.85rem"></span>
+</div>
 <main class="wrap cols" style="padding-top:1rem">
 
   <div class="card" id="alerts-card" hidden>
@@ -37,41 +46,35 @@
     <div id="contact"></div>
   </div>
 
-  <div class="card">
-    <h3>Métricas</h3>
+  <details class="card">
+    <summary>Métricas</summary>
     <div id="metrics" class="muted">cargando…</div>
-  </div>
+  </details>
 
   <div class="card" id="notifications-card" hidden>
     <h3>Respuestas de alcaldes</h3>
     <div id="notifications"></div>
   </div>
 
-  <div class="card">
-    <h3>Convocatorias <label style="font-weight:400"><input type="checkbox" id="pendingonly" checked style="width:auto"> solo pendientes</label></h3>
-    <p id="bulk-bar" style="font-size:.9rem; display:flex; gap:.6rem; align-items:center; flex-wrap:wrap">
-      <button class="btn small" id="bulk-publish" type="button">Publicar todas</button>
-      <span class="muted" id="bulk-note"></span>
-    </p>
+  <details class="card">
+    <summary>Convocatorias <span id="grants-count" class="muted"></span></summary>
+    <p><label style="font-weight:400"><input type="checkbox" id="pendingonly" checked style="width:auto"> solo pendientes</label></p>
     <div id="grants"></div>
-  </div>
+  </details>
 
-  <div class="card">
-    <h3>Licitaciones (PLACSP) <label style="font-weight:400"><input type="checkbox" id="pendingonly-lic" checked style="width:auto"> solo pendientes</label></h3>
-    <p id="bulk-bar-lic" style="font-size:.9rem; display:flex; gap:.6rem; align-items:center; flex-wrap:wrap">
-      <button class="btn small" id="bulk-publish-lic" type="button">Publicar todas</button>
-      <span class="muted" id="bulk-note-lic"></span>
-    </p>
+  <details class="card">
+    <summary>Licitaciones (PLACSP) <span id="lic-count" class="muted"></span></summary>
+    <p><label style="font-weight:400"><input type="checkbox" id="pendingonly-lic" checked style="width:auto"> solo pendientes</label></p>
     <div id="licitaciones"></div>
-  </div>
+  </details>
 
-  <div class="card">
-    <h3>Peticiones (señal de demanda)</h3>
+  <details class="card">
+    <summary>Peticiones (señal de demanda)</summary>
     <div id="requests"></div>
-  </div>
+  </details>
 
-  <div class="card">
-    <h3>Invitaciones</h3>
+  <details class="card">
+    <summary>Invitaciones</summary>
     <form id="invform" class="row-actions">
       <input name="email" type="email" placeholder="correo" required>
       <input name="name" placeholder="nombre">
@@ -80,7 +83,7 @@
     </form>
     <p id="invlink"></p>
     <div id="invites"></div>
-  </div>
+  </details>
 
 </main>
 <script>
@@ -144,8 +147,9 @@ async function loadGrants() {
   $('bulk-publish').textContent = LISTED.length
     ? `Publicar todas (${LISTED.length})` : 'Publicar todas';
   $('bulk-note').textContent = LISTED.length
-    ? `${LISTED.length} sin publicar de ${gs.length} en la lista`
-    : 'nada publicable en esta lista';
+    ? `${LISTED.length} sin publicar de ${gs.length}`
+    : 'nada publicable';
+  $('grants-count').textContent = `(${gs.length})`;
   $('grants').innerHTML = gs.length ? '' : '<p class="muted">Nada pendiente.</p>';
   for (const g of gs) {
     const d = document.createElement('details');
@@ -214,8 +218,9 @@ async function loadLicitaciones() {
   $('bulk-publish-lic').textContent = LISTED_LIC.length
     ? `Publicar todas (${LISTED_LIC.length})` : 'Publicar todas';
   $('bulk-note-lic').textContent = LISTED_LIC.length
-    ? `${LISTED_LIC.length} sin publicar de ${all.length} en la lista`
-    : 'nada publicable en esta lista';
+    ? `${LISTED_LIC.length} sin publicar de ${all.length}`
+    : 'nada publicable';
+  $('lic-count').textContent = `(${all.length})`;
   $('licitaciones').innerHTML = all.length ? '' : '<p class="muted">Nada pendiente.</p>';
   for (const l of all) {
     const d = document.createElement('details');
@@ -254,12 +259,15 @@ $('bulk-publish-lic').addEventListener('click', async () => {
   loadLicitaciones();
 });
 $('pendingonly-lic').addEventListener('change', loadLicitaciones);
+// Server replies immediately and keeps working in the background - a real PLACSP walk
+// can run 10+ minutes, too long to hold the button on "sondeando..." for. Re-enable after
+// a fixed pause rather than waiting on a response; check the list/alerts later for the
+// actual result.
 $('pollnow-lic').addEventListener('click', async () => {
-  $('pollnow-lic').disabled = true; $('pollnow-lic').textContent = 'sondeando…';
+  $('pollnow-lic').disabled = true; $('pollnow-lic').textContent = 'sondeo iniciado…';
   const r = await post('/api/op/licitaciones/poll');
-  $('pollnow-lic').disabled = false; $('pollnow-lic').textContent = 'Sondear PLACSP ahora';
-  alert(r.error || `${r.new} licitaciones actualizadas`);
-  loadLicitaciones(); loadAlerts();
+  if (r.error) { alert(r.error); $('pollnow-lic').disabled = false; $('pollnow-lic').textContent = 'Sondear PLACSP'; return; }
+  setTimeout(() => { $('pollnow-lic').disabled = false; $('pollnow-lic').textContent = 'Sondear PLACSP'; }, 15000);
 });
 
 async function candidates(id) {
@@ -340,12 +348,12 @@ $('invform').addEventListener('submit', async (ev) => {
   loadInvites();
 });
 
+// Same fire-and-forget handling as the PLACSP button above.
 $('pollnow').addEventListener('click', async () => {
-  $('pollnow').disabled = true; $('pollnow').textContent = 'sondeando…';
+  $('pollnow').disabled = true; $('pollnow').textContent = 'sondeo iniciado…';
   const r = await post('/api/op/poll');
-  $('pollnow').disabled = false; $('pollnow').textContent = 'Sondear BDNS ahora';
-  alert(r.error || `${r.new} convocatorias nuevas`);
-  loadGrants(); loadAlerts();
+  if (r.error) { alert(r.error); $('pollnow').disabled = false; $('pollnow').textContent = 'Sondear BDNS'; return; }
+  setTimeout(() => { $('pollnow').disabled = false; $('pollnow').textContent = 'Sondear BDNS'; }, 15000);
 });
 $('pendingonly').addEventListener('change', loadGrants);
 $('out').addEventListener('click', async () => { await fetch('/api/logout', { method: 'POST' }); location.href = '/'; });
