@@ -95,7 +95,7 @@ publicRouter.get('/api/grants', (req, res) => {
     FROM grant_row g LEFT JOIN grant_eligibility e ON e.grant_id = g.id
     WHERE g.published = 1 AND g.status = 'OPEN'
     ORDER BY g.deadline_date IS NULL, g.deadline_date
-    LIMIT 400`).all();
+    LIMIT 5000`).all();
   const last = db.prepare('SELECT MAX(created_at) m FROM grant_row').get().m;
   // Regions present in the current result set, so the UI only offers filters that match something.
   const regions = [...new Set(rows.map(r => r.region).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'es'));
@@ -115,7 +115,7 @@ publicRouter.get('/api/licitaciones', (req, res) => {
     FROM licitacion_row
     WHERE published = 1 AND estado = 'licitacion'
     ORDER BY fecha_limite IS NULL, fecha_limite
-    LIMIT 400`).all();
+    LIMIT 5000`).all();
   const last = db.prepare('SELECT MAX(created_at) m FROM licitacion_row').get().m;
   const tipos = [...new Set(rows.map(r => r.tipo_contrato).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'es'));
   // Filter on `ccaa` (derived from the feed's NUTS code - see placsp.js's ccaaFromNuts),

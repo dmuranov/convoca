@@ -95,7 +95,18 @@ operatorRouter.post('/api/op/grants/publish-batch', (req, res) => {
 // identifier just for the operator screen.
 operatorRouter.get('/api/op/licitaciones', (req, res) => {
   const where = req.query.q === 'pending' ? 'WHERE published = 0' : '';
-  const rows = db.prepare(`SELECT * FROM licitacion_row ${where} ORDER BY created_at DESC LIMIT 500`).all();
+  // raw_text/pliegos excluded - the console never renders them, and at today's volume
+  // (1700+ unpublished after the 2026-09-01 backlog) including raw pliego PDF text would
+  // make this payload enormous for nothing. LIMIT 500 ORDER BY created_at DESC used to
+  // mean "the review queue", but past 500 unpublished rows it silently buried anything
+  // older than the newest 500 - which is now most of the backlog, not an edge case.
+  const rows = db.prepare(`
+    SELECT id, expediente, source_url, updated_at, estado, organo, tipo_contrato,
+           procedimiento, cpv, valor_estimado, presupuesto_base, iva, fecha_limite, lugar,
+           duracion, num_lotes, titulo, resumen, quien_puede_interesarle, que_hay_que_hacer,
+           requisitos_clave, complejidad, complejidad_motivo, campos_ausentes, published,
+           created_at, ccaa
+    FROM licitacion_row ${where} ORDER BY created_at DESC LIMIT 5000`).all();
   res.json(rows);
 });
 
