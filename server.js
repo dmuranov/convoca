@@ -17,7 +17,7 @@ import { grantPath, BASE_URL } from './src/seoUtils.js';
 import { login, logout, loginThrottled, redeemInvite, sessionUser,
          setSessionCookie, clearSessionCookie, seedOperator } from './src/auth.js';
 import { pollOnce } from './src/ingest/poll.js';
-import { pollLicitacionesOnce } from './src/ingest/pollLicitaciones.js';
+import { pollLicitacionesOnce, drainStrandedLicitaciones } from './src/ingest/pollLicitaciones.js';
 import { alert } from './src/ingest/bdns.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -127,6 +127,10 @@ if (process.env.NODE_ENV === 'production') {
   cron.schedule('30 7 * * *', async () => {
     try { await pollLicitacionesOnce(); }
     catch (e) { alert('placsp_poll', e.message); }
+    // Separate try/catch: a poll failure must not also skip the backlog drain, and vice
+    // versa - see 2026-09-01's stranded-row incident (pollLicitaciones.js's isCurrent).
+    try { await drainStrandedLicitaciones(); }
+    catch (e) { alert('placsp_backlog', e.message); }
   }, { timezone: 'Europe/Madrid' });
 }
 

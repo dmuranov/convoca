@@ -15,17 +15,30 @@ import 'dotenv/config';
 import { db } from '../db.js';
 import { alert } from './bdns.js';
 import { walkFeed } from './placsp.js';
-import { prepareEnrichment } from './enrichLicitacion.js';
+import { prepareEnrichment, contextFromRow } from './enrichLicitacion.js';
 import { enqueueLicitacionJobs } from './queue.js';
 
 const MAX_PAGES = Number(process.env.PLACSP_MAX_PAGES || 15);
+// Caps how many stranded rows (see isCurrent below) get re-queued per call - a large
+// backlog (e.g. after a crash-during-poll incident) must drain gradually, not compete
+// with the day's fresh volume for the same 20s-per-job worker and the same subscription
+// rate limit. Deliberately small; see convoca-claude-cli-prod-risk memory.
+const BACKLOG_DRAIN_CAP = Number(process.env.LICITACION_BACKLOG_CAP || 50);
 
 export async function pollLicitacionesOnce() {
+  // titulo IS NOT NULL is part of "current", not just updated_at matching the feed - a row
+  // whose deterministic fields got written by prepareEnrichment() but whose AI job never
+  // got enqueued (a poll interrupted mid-run, e.g. a memory-restart) must still look
+  // "changed" here, or it's stranded forever: PLACSP won't bump updated_at just because we
+  // failed to finish with it, so nothing would ever revisit it otherwise.
   const known = new Map(
-    db.prepare('SELECT expediente, updated_at FROM licitacion_row').all()
-      .map(r => [r.expediente, r.updated_at])
+    db.prepare('SELECT expediente, updated_at, titulo FROM licitacion_row').all()
+      .map(r => [r.expediente, r])
   );
-  const isCurrent = (e) => known.get(e.expediente) === e.updated;
+  const isCurrent = (e) => {
+    const row = known.get(e.expediente);
+    return !!row && row.updated_at === e.updated && row.titulo !== null;
+  };
 
   const entries = await walkFeed(
     (pageEntries) => pageEntries.length > 0 && pageEntries.every(isCurrent),
@@ -54,6 +67,22 @@ export async function pollLicitacionesOnce() {
     alert('placsp_poll', 'zero entries returned from the PLACSP feed - check reachability');
   }
   return queued;
+}
+
+// Re-enriches rows the poll already wrote deterministic fields for but never got an AI
+// job enqueued (walkFeed may not even revisit them - see isCurrent above). Reads
+// raw_text/pliegos straight from the row, no PLACSP/pliego re-fetch. Capped and ordered
+// open-tenders-first so an incident-sized backlog can't crowd out the day's fresh jobs.
+export async function drainStrandedLicitaciones(limit = BACKLOG_DRAIN_CAP) {
+  const rows = db.prepare(
+    `SELECT * FROM licitacion_row WHERE titulo IS NULL
+     ORDER BY (estado = 'licitacion') DESC, created_at ASC LIMIT ?`
+  ).all(limit);
+  if (!rows.length) return { queued: 0 };
+  const prepared = rows.map(row => ({ id: row.id, expediente: row.expediente, context: contextFromRow(row) }));
+  const { queued } = await enqueueLicitacionJobs(prepared);
+  console.log(`backlog drain: ${queued} stranded licitación(es) re-queued for enrichment`);
+  return { queued };
 }
 
 if (process.argv[1] && import.meta.url.endsWith(process.argv[1].replace(/\\/g, '/').split('/').pop())) {

@@ -226,6 +226,20 @@ async function fetchPliegosText(pliegos, expediente) {
   return joined ? joined.slice(0, MAX_RAW_TEXT) : null;
 }
 
+// Rebuilds extractContext's input from an already-stored row, for re-enrichment of a
+// licitacion_row whose deterministic fields were written but whose AI job never ran (see
+// pollLicitaciones.js's isCurrent) - no need to re-fetch pliegos, raw_text is already durable.
+export function contextFromRow(row) {
+  return extractContext({
+    expediente: row.expediente, estado: row.estado, organo: row.organo,
+    tipoContrato: row.tipo_contrato, procedimiento: row.procedimiento,
+    cpv: JSON.parse(row.cpv || '[]'), presupuestoBase: row.presupuesto_base,
+    valorEstimado: row.valor_estimado, iva: row.iva, fechaLimite: row.fecha_limite,
+    lugar: row.lugar, duracion: row.duracion, numLotes: row.num_lotes,
+    titulo: row.titulo, rawText: row.raw_text,
+  });
+}
+
 // -- Deterministic phase: upserts every column except the AI-owned ones. `lic` is a
 // parsed feed entry from placsp.js. Fetches and stores the pliegos PDF text here so it is
 // durable before the batch call - same reasoning as prepareEnrichment in enrich.js.
