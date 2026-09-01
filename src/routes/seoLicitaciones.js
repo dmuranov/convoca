@@ -26,11 +26,14 @@ function renderPage(l) {
   const canonical = BASE_URL + path;
   const head = l.titulo || `Licitación ${l.expediente}`;
   const year = (l.fecha_limite || l.updated_at || new Date().toISOString()).slice(0, 4);
-  const title = `${head} ${year} — licitación pública, plazo y presupuesto | Plazo Abierto`;
+  // Expediente belongs in <title> more than anywhere else on the page: it's the exact
+  // string a contractor searches ("CMA 01/2026") to find a specific tender again, and
+  // title is what that query actually matches against - the <h1> copy alone doesn't help.
+  const title = `${head} — Exp. ${l.expediente} (${year}) | Plazo Abierto`;
   const amount = l.presupuesto_base
     ? `${eur(l.presupuesto_base)}${l.iva === 'incluido' ? ' (IVA incluido)' : l.iva === 'excluido' ? ' (sin IVA)' : ''}`
     : (l.valor_estimado ? `valor estimado ${eur(l.valor_estimado)}` : 'según pliegos');
-  const description = `${head}: ${amount}. ${l.fecha_limite ? `Plazo hasta ${l.fecha_limite}.` : ''} Licitación pública, requisitos y cómo presentarse.`.trim();
+  const description = `${head} (Expediente ${l.expediente}): ${amount}. ${l.fecha_limite ? `Plazo hasta ${l.fecha_limite}.` : ''} Licitación pública, requisitos y cómo presentarse.`.trim();
 
   let tareas = []; try { tareas = JSON.parse(l.que_hay_que_hacer || '[]'); } catch { tareas = []; }
   let requisitos = []; try { requisitos = JSON.parse(l.requisitos_clave || '[]'); } catch { requisitos = []; }

@@ -15,6 +15,8 @@ import { EXTRACT_SYSTEM as GRANT_SYSTEM, ELIGIBILITY_SCHEMA, applyAiResult as ap
 import { EXTRACT_SYSTEM as LICITACION_SYSTEM, LICITACION_SCHEMA, applyAiResult as applyLicitacionResult } from '../src/ingest/enrichLicitacion.js';
 import { alert } from '../src/ingest/bdns.js';
 import { MODEL } from '../src/llm.js';
+import { pingIndexNow } from '../src/indexnow.js';
+import { BASE_URL, grantPath, licitacionPath } from '../src/seoUtils.js';
 
 const execFileAsync = promisify(execFile);
 const JOB_TIMEOUT_MS = Number(process.env.WORKER_JOB_TIMEOUT_MS || 5 * 60_000);
@@ -30,12 +32,22 @@ const JOB_TYPES = {
     schema: ELIGIBILITY_SCHEMA,
     label: (refId) => db.prepare('SELECT bdns_ref FROM grant_row WHERE id = ?').get(refId)?.bdns_ref || refId,
     apply: (refId, label, ai) => applyGrantResult(refId, label, ai),
+    // Queried fresh, after apply() has written the new AI fields - not a snapshot from
+    // before the job ran, so a ping never fires ahead of the content it's announcing.
+    pingUrl: (refId) => {
+      const row = db.prepare('SELECT bdns_ref, plain_title, title, published FROM grant_row WHERE id = ?').get(refId);
+      return row?.published ? BASE_URL + grantPath(row) : null;
+    },
   },
   enrich_licitacion: {
     systemPrompt: LICITACION_SYSTEM,
     schema: LICITACION_SCHEMA,
     label: (refId) => db.prepare('SELECT expediente FROM licitacion_row WHERE id = ?').get(refId)?.expediente || refId,
     apply: (refId, label, ai) => applyLicitacionResult(label, ai),
+    pingUrl: (refId) => {
+      const row = db.prepare('SELECT id, titulo, expediente, published FROM licitacion_row WHERE id = ?').get(refId);
+      return row?.published ? BASE_URL + licitacionPath(row) : null;
+    },
   },
 };
 
@@ -144,6 +156,11 @@ async function main() {
         [job.id, JSON.stringify(ai)],
       );
       console.log(`worker: job ${job.id} (${label}) done`);
+      // Ping only after the fresh content is actually committed (§6: "en cada alta o
+      // cambio de estado") - pinging any earlier tells crawlers to arrive before there's
+      // anything new to see, wasting IndexNow's fast-crawl window on stale content.
+      const pingUrl = cfg.pingUrl(job.ref_id);
+      if (pingUrl) pingIndexNow(pingUrl);
     } catch (e) {
       await pool.query(
         `UPDATE job SET status = 'error', error = $2, updated_at = now() WHERE id = $1`,
