@@ -42,15 +42,36 @@ const JOB_TYPES = {
 // Counts every job row created today, not just this one - approximates claude-cli
 // invocations/day closely enough for a tripwire (a job only isn't an invocation yet if
 // it's still pending/processing, which is transient given the 20s worker cadence).
+//
+// Crossing detection is a persisted high-water mark, not `n % THRESHOLD === 0`: the
+// producer side (queue.js) inserts jobs in bulk per poll run, so `n` can jump past a
+// multiple of THRESHOLD in one step and a modulo check would silently never land on it -
+// skipping the alert entirely, not just re-firing it. worker_alert_state.last_alerted_multiple
+// is the highest multiple already alerted today; the UPSERT only advances (and returns a
+// row, triggering the alert) when the new multiple is strictly greater, so this fires
+// exactly once per threshold regardless of how `n` jumps between checks.
 async function logDailyVolume(pool) {
-  const { rows } = await pool.query(
+  const { rows: countRows } = await pool.query(
     `SELECT COUNT(*)::int AS n FROM job WHERE created_at >= date_trunc('day', now())`,
   );
-  const n = rows[0].n;
+  const n = countRows[0].n;
   console.log(`worker: ${n} job(s) today`);
-  if (DAILY_ALERT_THRESHOLD > 0 && n % DAILY_ALERT_THRESHOLD === 0) {
-    alert('worker_volume', `claude-cli subscription ingest: ${n} jobs today `
-      + `(threshold ${DAILY_ALERT_THRESHOLD}) - check Claude Pro usage before this grows further`);
+
+  const multiple = DAILY_ALERT_THRESHOLD > 0 ? Math.floor(n / DAILY_ALERT_THRESHOLD) : 0;
+  if (multiple > 0) {
+    const { rows: advanced } = await pool.query(
+      `INSERT INTO worker_alert_state (day, last_alerted_multiple) VALUES (CURRENT_DATE, $1)
+       ON CONFLICT (day) DO UPDATE SET last_alerted_multiple = $1
+       WHERE worker_alert_state.last_alerted_multiple < $1
+       RETURNING last_alerted_multiple`,
+      [multiple],
+    );
+    if (advanced.length) {
+      alert('worker_volume', `claude-cli subscription ingest: ${n} jobs today, crossed `
+        + `${multiple * DAILY_ALERT_THRESHOLD} - check Claude Pro usage before this grows further. `
+        + `Note: subscription limits are rolling-window, not calendar-day - a burst can hit a wall `
+        + `well under this count, so "under threshold" is not "safe from rate limits."`);
+    }
   }
 }
 
