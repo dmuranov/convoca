@@ -3,6 +3,16 @@
 // result into convoca's SQLite, marks the job done, and exits. Invoked repeatedly by
 // convoca-worker.timer (see deploy/convoca-worker.*) — no loop, no persistent session.
 //
+// Fallback path as of 2026-09-02, not the live one - poll.js/pollLicitaciones.js enqueue
+// nothing anymore, so this and convoca-worker.timer sit dormant (disabled, not deleted).
+// The subscription's rate-limit budget is shared with any interactive Claude Code session
+// on the same account - including a session actively debugging this worker, which is
+// exactly what turned a backlog recovery into a 26-minute total outage on 2026-09-02 with
+// the daily volume tripwire never firing (~273 attempts, still under its 300 threshold).
+// enrich.js/enrichLicitacion.js's enrichBatch() (Anthropic Batch API, ANTHROPIC_API_KEY)
+// is the live path now; this is kept the way enrichBatch used to be - in place, unused,
+// as the reverse fallback. See convoca-claude-cli-prod-risk memory for the full history.
+//
 // job_type dispatch: each entry supplies the fixed system prompt/schema for that
 // extraction and how to resolve a human-readable label + write the result back, so this
 // file stays a thin runner rather than duplicating enrich.js/enrichLicitacion.js's rules.
@@ -25,6 +35,35 @@ const JOB_TIMEOUT_MS = Number(process.env.WORKER_JOB_TIMEOUT_MS || 5 * 60_000);
 // combined grants+licitaciones volume. Fires again at every multiple (600, 900, ...) so
 // growth past the first crossing keeps escalating instead of going quiet again.
 const DAILY_ALERT_THRESHOLD = Number(process.env.WORKER_DAILY_ALERT_THRESHOLD || 300);
+// "Is the queue currently failing" needs no volume math and no threshold calibration -
+// N in a row erroring catches a rate-limit wall, a PLACSP/BDNS outage, a bad deploy, or a
+// wedged DB, in under N * 20s, regardless of whether that day's total ever looks unusual.
+// The 2026-09-02 blackout was trivially this shape and would have tripped it within two
+// minutes; the daily counter above answers a different question and stayed silent.
+const CONSECUTIVE_FAILURE_THRESHOLD = Number(process.env.WORKER_CONSECUTIVE_FAILURE_THRESHOLD || 5);
+
+// Persisted (not in-memory) because each tick is a fresh process - state must survive
+// across invocations to mean anything. Self-creating table: this script has no separate
+// migration step, and the table existing is an implementation detail of this one check.
+async function trackConsecutiveFailures(pool, succeeded) {
+  await pool.query(`CREATE TABLE IF NOT EXISTS worker_state (key TEXT PRIMARY KEY, value INT NOT NULL DEFAULT 0)`);
+  if (succeeded) {
+    await pool.query(`INSERT INTO worker_state (key, value) VALUES ('consecutive_failures', 0)
+      ON CONFLICT (key) DO UPDATE SET value = 0`);
+    return;
+  }
+  const { rows } = await pool.query(`
+    INSERT INTO worker_state (key, value) VALUES ('consecutive_failures', 1)
+    ON CONFLICT (key) DO UPDATE SET value = worker_state.value + 1
+    RETURNING value`);
+  const n = rows[0].value;
+  // Fires at 5, 10, 15... - once at the threshold, then re-escalates rather than going
+  // quiet for the rest of a long outage, same shape as the volume tripwire's multiples.
+  if (n % CONSECUTIVE_FAILURE_THRESHOLD === 0) {
+    alert('worker_consecutive_failures', `${n} job(s) in a row have failed - the queue `
+      + `itself is likely broken (rate limit, outage, bad deploy), not the individual jobs`);
+  }
+}
 
 const JOB_TYPES = {
   enrich_grant: {
@@ -137,8 +176,12 @@ async function runPlaybook(job, cfg) {
     '--no-session-persistence',
   ], { timeout: JOB_TIMEOUT_MS, maxBuffer: 10 * 1024 * 1024, env: CLAUDE_ENV });
 
+  // Asymmetric on purpose: the marker's presence is positive proof (claude-cli printed
+  // its own precedence warning), but its absence only means we didn't see that warning -
+  // not proof the subscription was used. Say exactly that; "auth=subscription" here would
+  // be the same shape of unverified claim this whole check exists to stop making.
   const usedApiKey = API_KEY_AUTH_MARKER.test(stderr || '');
-  console.log(`worker: job ${job.id} auth=${usedApiKey ? 'API_KEY' : 'subscription'}`);
+  console.log(`worker: job ${job.id} auth=${usedApiKey ? 'API_KEY (confirmed)' : 'no API-key warning seen'}`);
   if (usedApiKey) {
     // Refuse the result outright rather than accepting a job that succeeded but billed
     // unexpectedly - a stopped worker is the right failure mode for silent billing, a
@@ -191,6 +234,7 @@ async function main() {
         [job.id, JSON.stringify(ai)],
       );
       console.log(`worker: job ${job.id} (${label}) done`);
+      await trackConsecutiveFailures(pool, true);
       // Ping only after the fresh content is actually committed (§6: "en cada alta o
       // cambio de estado") - pinging any earlier tells crawlers to arrive before there's
       // anything new to see, wasting IndexNow's fast-crawl window on stale content.
@@ -201,6 +245,7 @@ async function main() {
         `UPDATE job SET status = 'error', error = $2, updated_at = now() WHERE id = $1`,
         [job.id, e.message],
       );
+      await trackConsecutiveFailures(pool, false);
       if (e.authLeak) {
         // Distinct, impossible-to-miss alert - not folded into the generic 'extract'
         // channel, which is expected to have occasional benign entries (a bad PDF, a
