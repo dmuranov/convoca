@@ -21,6 +21,12 @@ const PAGE_SIZE = 200;
 const MAX_PAGES = Number(process.env.POLL_MAX_PAGES || 60);
 // Politeness delay between BDNS detail calls; the API is known to block noisy clients.
 const THROTTLE_MS = Number(process.env.POLL_THROTTLE_MS || 250);
+// A pure enriched===0 check misses "40 of 50 failed" - a schema change, a malformed-PDF
+// class, a partial API incident - which the old per-job queue surfaced for free (every
+// failed job alerted individually). A flat batchFailed>0 would instead fire on the
+// occasional single benign failure ("extract" already logs those) every normal day. This
+// ratio is the middle ground: ignore noise, catch a batch that's actually broken.
+const BATCH_FAILURE_ALERT_RATIO = Number(process.env.POLL_BATCH_FAILURE_RATIO || 0.3);
 
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
@@ -172,11 +178,12 @@ async function runPoll() {
   console.log(`poll done: ${enriched} enriched (awaiting publish), ${skipped} skipped (not applicable), ${failed} failed`);
   // "Is ingest currently failing" beats any volume/day threshold for catching this kind of
   // fault (2026-09-02's 26-minute rate-limit blackout would have tripped this immediately,
-  // where the 300/day counter never fired at all) - no calibration needed, a whole batch
-  // failing outright is never a normal outcome regardless of size.
-  if (toEnrich.length > 0 && enriched === 0) {
-    alert('poll_batch_failed', `all ${toEnrich.length} grant(s) submitted for enrichment `
-      + `failed - check Anthropic API status/credentials before assuming a content problem`);
+  // where the 300/day counter never fired at all). Ratio, not enriched===0: a batch where
+  // 40 of 50 fail is exactly this same failure, and enriched===0 alone would miss it -
+  // "failed" is not automatically a bad PDF once it's a third of the batch.
+  if (toEnrich.length > 0 && batchFailed / toEnrich.length > BATCH_FAILURE_ALERT_RATIO) {
+    alert('poll_batch_failed', `${batchFailed} of ${toEnrich.length} grant(s) submitted `
+      + `for enrichment failed - check Anthropic API status/credentials before assuming a content problem`);
   }
   return enriched;
 }

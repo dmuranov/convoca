@@ -245,6 +245,15 @@ export async function enrichGrant(grantId, bdnsRef, opts = {}) {
 const BATCH_POLL_MS = Number(process.env.INGEST_BATCH_POLL_MS || 60_000);
 const BATCH_TIMEOUT_MS = Number(process.env.INGEST_BATCH_TIMEOUT_MS || 2 * 60 * 60_000);
 
+// pdf-parse occasionally leaves a NUL byte in extracted bases text from a malformed PDF -
+// same root cause that rolled back an entire Postgres job-insert transaction on
+// 2026-09-01 (src/ingest/queue.js's stripNul). Untested whether the Batch API's JSONL
+// upload tolerates a raw NUL byte any better than Postgres text columns did; stripping it here
+// costs nothing and this context-building code is shared with the path that already
+// proved it doesn't.
+const NUL = String.fromCharCode(0);
+const stripNul = (s) => s.split(NUL).join('');
+
 export async function enrichBatch(prepared) {
   if (!prepared.length) return { enriched: 0, failed: 0 };
 
@@ -260,7 +269,7 @@ export async function enrichBatch(prepared) {
     max_tokens: 4096,
         system: EXTRACT_SYSTEM,
         output_config: { format: { type: 'json_schema', schema: ELIGIBILITY_SCHEMA } },
-        messages: [{ role: 'user', content: p.context }],
+        messages: [{ role: 'user', content: stripNul(p.context) }],
       },
     })),
   });

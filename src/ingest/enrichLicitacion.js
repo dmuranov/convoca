@@ -300,6 +300,14 @@ export async function enrichLicitacion(lic) {
 const BATCH_POLL_MS = Number(process.env.INGEST_BATCH_POLL_MS || 60_000);
 const BATCH_TIMEOUT_MS = Number(process.env.INGEST_BATCH_TIMEOUT_MS || 2 * 60 * 60_000);
 
+// Same fix as enrich.js: pdf-parse can leave a stray control byte in extracted pliego
+// text, which is what rolled back an entire Postgres job-insert transaction on
+// 2026-09-01 (src/ingest/queue.js). Untested whether the Batch API tolerates that byte
+// any better; stripping it here is free insurance on context that comes from the same
+// extraction path that already proved it can happen.
+const CONTROL_NUL = String.fromCharCode(0);
+const stripNul = (s) => s.split(CONTROL_NUL).join('');
+
 export async function enrichBatch(prepared) {
   if (!prepared.length) return { enriched: 0, failed: 0 };
 
@@ -320,7 +328,7 @@ export async function enrichBatch(prepared) {
         max_tokens: 4096,
         system: EXTRACT_SYSTEM,
         output_config: { format: { type: 'json_schema', schema: LICITACION_SCHEMA } },
-        messages: [{ role: 'user', content: p.context }],
+        messages: [{ role: 'user', content: stripNul(p.context) }],
       },
     })),
   });

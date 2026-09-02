@@ -38,6 +38,9 @@ const MAX_PAGES = Number(process.env.PLACSP_MAX_PAGES || 15);
 // any more, see convoca-claude-cli-prod-risk memory, but still no reason to put an
 // incident-sized backlog through in one Anthropic bill). Deliberately small.
 const BACKLOG_DRAIN_CAP = Number(process.env.LICITACION_BACKLOG_CAP || 50);
+// See poll.js for the reasoning: enriched===0 alone misses "40 of 50 failed", and a flat
+// batchFailed>0 would fire on the occasional single benign failure every normal day.
+const BATCH_FAILURE_ALERT_RATIO = Number(process.env.POLL_BATCH_FAILURE_RATIO || 0.3);
 
 // Guards against a second concurrent walk (cron firing while a manual "Sondear PLACSP"
 // trigger is still running, or an impatient double-click) - two walkFeed runs against the
@@ -84,12 +87,11 @@ async function runPoll() {
   pingPublishedAmong(toEnrich);
   console.log(`placsp poll done: ${enriched} enriched (awaiting publish), ${unchanged} unchanged, `
     + `${prepFailed + batchFailed} failed (of ${entries.length} entries seen)`);
-  // See poll.js: a whole batch failing outright is the fast, threshold-free "is ingest
-  // currently failing" signal - not a substitute for the volume tripwire, a replacement
-  // for the thing it can't do.
-  if (toEnrich.length > 0 && enriched === 0) {
-    alert('poll_batch_failed', `all ${toEnrich.length} licitación(es) submitted for `
-      + `enrichment failed - check Anthropic API status/credentials before assuming a content problem`);
+  // See poll.js: ratio, not enriched===0 - a batch where 40 of 50 fail is exactly the
+  // failure this exists to catch, and enriched===0 alone would miss it.
+  if (toEnrich.length > 0 && batchFailed / toEnrich.length > BATCH_FAILURE_ALERT_RATIO) {
+    alert('poll_batch_failed', `${batchFailed} of ${toEnrich.length} licitación(es) `
+      + `submitted for enrichment failed - check Anthropic API status/credentials before assuming a content problem`);
   }
   // Same reasoning as poll.js: a run where everything was already `unchanged` is a normal
   // quiet day, but PLACSP returning zero entries at all across a fresh page walk means the
@@ -121,9 +123,9 @@ export async function drainStrandedLicitaciones(limit = BACKLOG_DRAIN_CAP) {
   const { enriched, failed } = await enrichBatch(prepared);
   pingPublishedAmong(prepared);
   console.log(`backlog drain: ${enriched} stranded licitación(es) enriched, ${failed} failed`);
-  if (prepared.length > 0 && enriched === 0) {
-    alert('poll_batch_failed', `all ${prepared.length} backlog licitación(es) submitted `
-      + `for enrichment failed - check Anthropic API status/credentials`);
+  if (prepared.length > 0 && failed / prepared.length > BATCH_FAILURE_ALERT_RATIO) {
+    alert('poll_batch_failed', `${failed} of ${prepared.length} backlog licitación(es) `
+      + `submitted for enrichment failed - check Anthropic API status/credentials`);
   }
   return { enriched };
 }
