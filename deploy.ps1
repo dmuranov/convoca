@@ -26,7 +26,12 @@ Write-Host "== seed (idempotent; needs baseline files under ~/grants/baseline_ou
 ssh -i $KEY $VM "cd $DEST && BASELINE_JSON=/home/azureuser/grants/baseline_out/concesiones_palencia_raw_3y.json node scripts/seed.js"
 
 Write-Host "== (re)start pm2 app 'convoca' ONLY =="
-ssh -i $KEY $VM "cd $DEST && (pm2 restart convoca --update-env 2>/dev/null || pm2 start ecosystem.config.cjs) && pm2 save && pm2 status convoca"
+# `pm2 restart convoca` (by name) restarts the process but does NOT re-read
+# ecosystem.config.cjs - a config-only change (max_memory_restart, env, etc.) would
+# silently keep running under the old settings forever. `pm2 restart <file>` reloads the
+# file's config for the matching app by name; falls back to `start` only on a truly first
+# deploy where the app isn't registered with pm2 yet.
+ssh -i $KEY $VM "cd $DEST && (pm2 restart ecosystem.config.cjs --update-env 2>/dev/null || pm2 start ecosystem.config.cjs) && pm2 save && pm2 status convoca"
 
 Write-Host "== health =="
 $health = ssh -i $KEY $VM "curl -s http://localhost:3003/health"
