@@ -103,6 +103,19 @@ async function claimJob(client) {
   return job;
 }
 
+// .env carries ANTHROPIC_API_KEY too (the deliberate enrichBatch()/enrichLicitacion.js
+// fallback path - see convoca-claude-cli-prod-risk memory), and `dotenv/config` above
+// loads it into this process's own env. claude-cli treats a present ANTHROPIC_API_KEY as
+// taking precedence over the Pro subscription login - confirmed live (2026-09-02): every
+// job was silently billing the API key instead of using the subscription this whole
+// system exists to use for free, and once that key's balance hit zero every job started
+// failing with "Credit balance is too low" instead of falling back to the login. Strip it
+// from the child's env explicitly so this can't happen again regardless of what else ever
+// ends up in .env.
+const CLAUDE_ENV = Object.fromEntries(
+  Object.entries(process.env).filter(([k]) => k !== 'ANTHROPIC_API_KEY')
+);
+
 async function runPlaybook(job, cfg) {
   const { stdout } = await execFileAsync('claude', [
     '-p', job.playbook,
@@ -112,7 +125,7 @@ async function runPlaybook(job, cfg) {
     '--json-schema', JSON.stringify(cfg.schema),
     '--output-format', 'json',
     '--no-session-persistence',
-  ], { timeout: JOB_TIMEOUT_MS, maxBuffer: 10 * 1024 * 1024 });
+  ], { timeout: JOB_TIMEOUT_MS, maxBuffer: 10 * 1024 * 1024, env: CLAUDE_ENV });
 
   const res = JSON.parse(stdout);
   if (res.is_error || !res.structured_output) {
