@@ -110,6 +110,11 @@ operatorRouter.get('/api/op/licitaciones', (req, res) => {
   res.json(rows);
 });
 
+// No estado restriction here, unlike publish-batch below - a deliberate one-at-a-time
+// escape hatch for an operator who's actually looked at a specific historical row and
+// judged it worth publishing, not an oversight. The thing worth guarding against is
+// publishing the ~1,010-row historical tier in bulk with no one having looked at any of
+// it, which is what the batch endpoint's gate exists to prevent.
 operatorRouter.post('/api/op/licitaciones/:expediente/publish', (req, res) => {
   const { changes } = db.prepare('UPDATE licitacion_row SET published = ? WHERE expediente = ?')
     .run(req.body?.published ? 1 : 0, req.params.expediente);
@@ -119,6 +124,17 @@ operatorRouter.post('/api/op/licitaciones/:expediente/publish', (req, res) => {
   res.json({ ok: true });
 });
 
+// The estado = 'licitacion' filter below is the actual index-composition gate, not the
+// enrichment pacing in pollLicitaciones.js (enriching never touches the public site or
+// the index - only this endpoint does). It's deliberate, not incidental: publishing the
+// ~1,010-row historical tier (resuelta/adjudicada/anulada - never live while their outcome
+// was in question, never will be) onto a domain verified 2026-09-01 is the same
+// thin-content bet the licitación hub pages are held back on, pending the Tuesday GSC
+// check. Widening this to include pendiente_adjudicacion (real current users - someone who
+// bid is checking the award) is a reasonable future call once that signal reports back;
+// widening it to the historical estados is not, until there's a reason to think the domain
+// has room for ~1,010 pages nobody was ever going to search for. Don't "fix" this filter
+// without re-reading convoca-claude-cli-prod-risk memory first.
 operatorRouter.post('/api/op/licitaciones/publish-batch', (req, res) => {
   const ids = Array.isArray(req.body?.ids) ? req.body.ids.filter(x => typeof x === 'string') : null;
   if (!ids?.length) return res.status(400).json({ error: 'faltan ids' });

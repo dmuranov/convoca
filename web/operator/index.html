@@ -219,8 +219,8 @@ let LISTED_LIC = [];   // expedientes currently listed, for the bulk publish but
 async function loadLicitaciones() {
   const pending = $('pendingonly-lic').checked;
   const all = await j('/api/op/licitaciones' + (pending ? '?q=pending' : ''));
-  // Same gate as the publish/publish-batch endpoints: only a summarised, still-open
-  // licitación is publishable - adjudicada/resuelta/anulada rows are historical.
+  // Same gate as publish-batch in routes/operator.js, deliberately - see that comment for
+  // why estado==='licitacion' is the actual index-composition boundary, not a leftover.
   LISTED_LIC = all.filter(l => !l.published && l.resumen && l.estado === 'licitacion').map(l => l.expediente);
   $('bulk-publish-lic').disabled = !LISTED_LIC.length;
   $('bulk-publish-lic').textContent = LISTED_LIC.length
