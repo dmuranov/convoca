@@ -116,8 +116,18 @@ const CLAUDE_ENV = Object.fromEntries(
   Object.entries(process.env).filter(([k]) => k !== 'ANTHROPIC_API_KEY')
 );
 
+// Auth mode is observed, never assumed - stripping ANTHROPIC_API_KEY above is only a
+// guess about *why* claude-cli would pick subscription auth, not proof it did. The 2026-
+// 09-02 incident was exactly this: "the worker drained jobs autonomously" stayed true the
+// whole time; "therefore it's using the subscription" was the unverified assumption
+// sitting under it, invisible until the (unrelated) API key ran out of credit. claude-cli
+// prints this exact line to stderr whenever ANY auth source other than the subscription
+// login takes precedence - regardless of whether that source is our own env leaking back
+// in, a different env var name, or a stored credential neither of us thought to check.
+const API_KEY_AUTH_MARKER = /ANTHROPIC_API_KEY|another auth source.*takes precedence/i;
+
 async function runPlaybook(job, cfg) {
-  const { stdout } = await execFileAsync('claude', [
+  const { stdout, stderr } = await execFileAsync('claude', [
     '-p', job.playbook,
     '--model', MODEL,
     '--tools', '',
@@ -126,6 +136,18 @@ async function runPlaybook(job, cfg) {
     '--output-format', 'json',
     '--no-session-persistence',
   ], { timeout: JOB_TIMEOUT_MS, maxBuffer: 10 * 1024 * 1024, env: CLAUDE_ENV });
+
+  const usedApiKey = API_KEY_AUTH_MARKER.test(stderr || '');
+  console.log(`worker: job ${job.id} auth=${usedApiKey ? 'API_KEY' : 'subscription'}`);
+  if (usedApiKey) {
+    // Refuse the result outright rather than accepting a job that succeeded but billed
+    // unexpectedly - a stopped worker is the right failure mode for silent billing, a
+    // quietly-completed job is not. main() recognizes .authLeak and exits(1) so this
+    // surfaces as a systemd failure, not just another per-job error.
+    const err = new Error(`claude-cli used non-subscription auth for job ${job.id} - stderr: ${(stderr || '').slice(0, 500)}`);
+    err.authLeak = true;
+    throw err;
+  }
 
   const res = JSON.parse(stdout);
   if (res.is_error || !res.structured_output) {
@@ -179,6 +201,17 @@ async function main() {
         `UPDATE job SET status = 'error', error = $2, updated_at = now() WHERE id = $1`,
         [job.id, e.message],
       );
+      if (e.authLeak) {
+        // Distinct, impossible-to-miss alert - not folded into the generic 'extract'
+        // channel, which is expected to have occasional benign entries (a bad PDF, a
+        // thin object) that this must never blend into. Re-fires every 20s until fixed,
+        // by design: the failure mode this replaces was silent, so noisy is correct here.
+        alert('worker_auth_leak', `job ${job.id} ${label}: ${e.message}`);
+        console.error(`worker: AUTH LEAK - job ${job.id} (${label}): ${e.message}`);
+        await logDailyVolume(pool);
+        await pool.end();
+        process.exit(1);
+      }
       alert('extract', `job ${job.id} ${label}: ${e.message}`);
       console.error(`worker: job ${job.id} (${label}) failed: ${e.message}`);
     }
