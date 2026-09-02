@@ -33,11 +33,28 @@ function pingPublishedAmong(prepared) {
 }
 
 const MAX_PAGES = Number(process.env.PLACSP_MAX_PAGES || 15);
-// Caps how many stranded rows (see isCurrent below) get re-submitted per call - kept as a
-// pacing limit even on the Batch API path (no per-job rate-limit contention to avoid here
-// any more, see convoca-claude-cli-prod-risk memory, but still no reason to put an
-// incident-sized backlog through in one Anthropic bill). Deliberately small.
-const BACKLOG_DRAIN_CAP = Number(process.env.LICITACION_BACKLOG_CAP || 50);
+// Two tiers, two paces, for two different reasons - neither is about the $2.44 it costs
+// to enrich the whole backlog (see convoca-claude-cli-prod-risk memory; that reason is
+// gone now that this runs on the Batch API, not a shared subscription).
+//
+// 1. Blast radius on unsampled output: 1,743 rows is a lot to run before anyone has read
+//    the output of a smaller batch. A systematic prompt/schema weakness is cheaper to find
+//    at a few hundred than at the full backlog.
+// 2. Index composition: licitacion/anuncio_previo/pendiente_adjudicacion rows have real
+//    current users (an active bidder, or someone who bid and is checking the award) -
+//    publishing them today makes them genuinely live and useful. resuelta/adjudicada/
+//    anulada rows were never live while their outcome was in question and never will be -
+//    publishing ~1,010 of them onto a domain verified last week is the same thin-content
+//    bet the licitación hub pages are already parked behind (Tuesday GSC check, not yet
+//    reported). That tier stays parked behind the same signal, not a fixed date.
+const OPEN_TENDER_ESTADOS = ['licitacion', 'anuncio_previo', 'pendiente_adjudicacion'];
+// ~733 rows currently qualify; capped well under that for the first run on purpose - drain
+// a few hundred, read a sample of the actual cards, then raise this once that's done rather
+// than clearing the whole open tier in one unreviewed shot.
+const OPEN_TENDER_DRAIN_CAP = Number(process.env.OPEN_TENDER_DRAIN_CAP || 250);
+// Historical tier (resuelta/adjudicada/anulada) - held at the old conservative pace
+// deliberately. Raise only once the grant hubs/fichas are confirmed indexing cleanly.
+const HISTORICAL_DRAIN_CAP = Number(process.env.LICITACION_BACKLOG_CAP || 50);
 // See poll.js for the reasoning: enriched===0 alone misses "40 of 50 failed", and a flat
 // batchFailed>0 would fire on the occasional single benign failure every normal day.
 const BATCH_FAILURE_ALERT_RATIO = Number(process.env.POLL_BATCH_FAILURE_RATIO || 0.3);
@@ -109,25 +126,35 @@ export async function pollLicitacionesOnce() {
   finally { running = false; }
 }
 
-// Re-enriches rows the poll already wrote deterministic fields for but never got an AI
-// job enqueued (walkFeed may not even revisit them - see isCurrent above). Reads
-// raw_text/pliegos straight from the row, no PLACSP/pliego re-fetch. Capped and ordered
-// open-tenders-first so an incident-sized backlog can't crowd out the day's fresh jobs.
-export async function drainStrandedLicitaciones(limit = BACKLOG_DRAIN_CAP) {
+// negate=false: estado IN (...OPEN_TENDER_ESTADOS) - the open/recent tier.
+// negate=true: estado NOT IN (...OPEN_TENDER_ESTADOS) - everything else (historical).
+async function drainTier(label, negate, limit) {
+  const placeholders = OPEN_TENDER_ESTADOS.map(() => '?').join(',');
   const rows = db.prepare(
     `SELECT * FROM licitacion_row WHERE titulo IS NULL
-     ORDER BY (estado = 'licitacion') DESC, created_at ASC LIMIT ?`
-  ).all(limit);
-  if (!rows.length) return { enriched: 0 };
+     AND estado ${negate ? 'NOT IN' : 'IN'} (${placeholders})
+     ORDER BY created_at ASC LIMIT ?`
+  ).all(...OPEN_TENDER_ESTADOS, limit);
+  if (!rows.length) return 0;
   const prepared = rows.map(row => ({ id: row.id, expediente: row.expediente, context: contextFromRow(row) }));
   const { enriched, failed } = await enrichBatch(prepared);
   pingPublishedAmong(prepared);
-  console.log(`backlog drain: ${enriched} stranded licitación(es) enriched, ${failed} failed`);
-  if (prepared.length > 0 && failed / prepared.length > BATCH_FAILURE_ALERT_RATIO) {
-    alert('poll_batch_failed', `${failed} of ${prepared.length} backlog licitación(es) `
-      + `submitted for enrichment failed - check Anthropic API status/credentials`);
+  console.log(`backlog drain (${label}): ${enriched} enriched, ${failed} failed`);
+  if (failed / prepared.length > BATCH_FAILURE_ALERT_RATIO) {
+    alert('poll_batch_failed', `${label} backlog: ${failed} of ${prepared.length} `
+      + `licitación(es) submitted for enrichment failed - check Anthropic API status/credentials`);
   }
-  return { enriched };
+  return enriched;
+}
+
+// Re-enriches rows the poll already wrote deterministic fields for but never got an AI
+// job enqueued (walkFeed may not even revisit them - see isCurrent above). Reads
+// raw_text/pliegos straight from the row, no PLACSP/pliego re-fetch. Two separate tiers,
+// two separate caps - see OPEN_TENDER_DRAIN_CAP/HISTORICAL_DRAIN_CAP above for why.
+export async function drainStrandedLicitaciones() {
+  const openEnriched = await drainTier('open/recent', false, OPEN_TENDER_DRAIN_CAP);
+  const historicalEnriched = await drainTier('historical', true, HISTORICAL_DRAIN_CAP);
+  return { enriched: openEnriched + historicalEnriched };
 }
 
 if (process.argv[1] && import.meta.url.endsWith(process.argv[1].replace(/\\/g, '/').split('/').pop())) {
