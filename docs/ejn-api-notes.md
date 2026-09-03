@@ -197,6 +197,35 @@ field directly; don't build a `/FundingSources` join for this purpose - it answe
 different question (how a purchase was budgeted domestically, not whether it was EU
 money).
 
+## Aggregating "what did this town spend" - use CityId, not AdministrativeUnitId
+
+Found while scoping the Prijedor page (2026-09-03), and it generalizes to every
+municipality: **a town can have more than one `AdministrativeUnits` row**, and
+`AdministrativeUnitId` answers a different question than "is this authority in this town."
+
+Confirmed live: Prijedor has *two* AdministrativeUnits records - `Id=17` (`Type: "City"`)
+and `Id=54` (`Type: "Municipality"`, `HigherUnitId: 17` - nested *under* the City record).
+`ContractingAuthorities` filtered by `AdministrativeUnitId eq 17` returns 29 authorities;
+`eq 54` returns 3 more (32 total). Filtered by `CityId eq 13` (Cities' one, unambiguous
+Prijedor row) returns **55**. The missing 23 aren't a data gap - they're authorities whose
+`AdministrativeUnitId` points to `Republika Srpska` (the Entity) directly, because in RS
+schools/hospitals/courts are Entity-funded, not municipal, even though physically
+headquartered in the town. `AdministrativeUnitId` reflects *whose budget governs this
+authority*, not *where it sits* - a different, real distinction, not a bug.
+
+**For a municipality profile page ("what happened in my town"), CityId is the correct
+join.** The build brief's own target narrative explicitly wants school heating counted as
+part of a town's story - that's Entity-funded in RS, so joining on AdministrativeUnitId
+would silently exclude it. AdministrativeUnitId is still the right key for a *different*
+future feature (an entity/canton-level rollup page, where "which government tier" is
+exactly the question) - the two join keys serve two different page types, not one
+"correct" and one "wrong."
+
+Also checked: only one `Cities` row exists for Prijedor (no Latin/Cyrillic duplicate on
+that side) - script variation only shows up in individual authority *names* (e.g. "ЈУ
+ОСНОВНА ШКОЛА" among Prijedor's own authorities), which is a rendering concern, not a
+join-correctness one.
+
 ## Open questions for the next session, not yet resolved
 
 - FBiH multi-level hierarchy (entitet → kanton → općina) not confirmed live - only an RS
