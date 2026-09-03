@@ -58,25 +58,32 @@ app.get('/opstina/:name', (req, res) => {
 // module-level flag stops an overlapping second firing if one run ever takes longer than
 // the interval between them, same shape as convoca's own PLACSP walk-button fix.
 if (process.env.NODE_ENV === 'production') {
-  let syncing = false;
+  // Single shared guard across BOTH jobs, not one flag each - a per-job flag only stops a
+  // job from overlapping itself. Sync's own wall-clock time isn't bounded (each collection
+  // is capped in pages, but total run time grows as coverage expands beyond Prijedor/
+  // Zenica), so a fixed offset alone can't guarantee separation forever - if a sync run
+  // ever does overrun into enrichment's window, this makes enrichment skip that cycle
+  // cleanly (picked up next time) instead of both hitting the DB as writers at once.
+  let ejnBusy = false;
+
+  // Enrichment offset a full hour after sync, not the 20min first tried - 20min assumed
+  // sync always finishes fast, which stops being true as coverage grows nationwide. An
+  // hour costs nothing and the shared guard above covers the case where even that isn't
+  // enough on a given cycle.
   cron.schedule('0 */6 * * *', async () => {
-    if (syncing) return;
-    syncing = true;
+    if (ejnBusy) return;
+    ejnBusy = true;
     try { await pollEjnOnce(); }
     catch (e) { alert('ejn_sync', e.message); }
-    finally { syncing = false; }
+    finally { ejnBusy = false; }
   });
 
-  let enriching = false;
-  // Staggered 20min after the sync window, same reasoning as convoca's own poll/enrich
-  // stagger - no reason to have both contend for the same Anthropic rate-limit window
-  // when enrichment only needs whatever the sync run just wrote.
-  cron.schedule('20 */6 * * *', async () => {
-    if (enriching) return;
-    enriching = true;
+  cron.schedule('0 1-23/6 * * *', async () => {
+    if (ejnBusy) return;
+    ejnBusy = true;
     try { await enrichPendingTerminations(); }
     catch (e) { alert('ejn_enrich', e.message); }
-    finally { enriching = false; }
+    finally { ejnBusy = false; }
   });
 }
 
