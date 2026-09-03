@@ -3,8 +3,10 @@
 Written before any adapter code, per the FondBiH build brief's rule: no adapter gets
 written against a URL nobody has fetched. Everything below was confirmed by actually
 calling the API, not by reading the spec alone — the spec omits the base URL entirely,
-and one endpoint the brief expected (`/FundingSources` as an EU-funding flag) turned out
-to mean something else once queried.
+one endpoint the brief expected (`/FundingSources` as an EU-funding flag) turned out to
+mean something else once queried, and a "confirmed gap" in this doc's first draft (no
+supplier link on any award) turned out to be a wrong DTO choice, not a missing feature -
+see the supplier-chain section below.
 
 ## Base URL — not in the spec, had to be found empirically
 
@@ -119,30 +121,63 @@ against `/Cities`, even though both collections contain a row for the same place
 different `Id`. Keep them as two separate lookup tables with two separate foreign keys,
 matching each field to the collection its name says it belongs to.
 
-## Confirmed gap: no supplier/winning-bidder field anywhere in the award chain
+## Supplier chain — RESOLVED, not a gap (corrected from an earlier draft of this doc)
 
-The brief's example output ("Najveći dobavljač: [firma], N ugovora...") needs a link from
-an award/contract to the winning supplier. **No such field exists** on any award-shaped
-entity - checked the *full* schema (`components.schemas.AwardExtendedListDto`), not just
-one sample's non-null fields, plus live samples of `/Awards`, `/AwardNotices`,
-`/LotContracts`, `/NpsProcurementAwards`, `/BiddingInvitations`: none carry a
-`SupplierId`/`SupplierName`-shaped property. `$expand=Supplier` is rejected outright.
-`/ProcedureContractSummaries` (a plausible-sounding candidate) returns an empty set on an
-unfiltered probe - untested whether it's populated for specific procedures, or dead.
-`/Suppliers` and `/UnregisteredSuppliers` exist as reference collections but nothing
-found points *into* them from an award row.
+First pass (checking `/Awards`, `/AwardNotices`, `/LotContracts` and their full schemas)
+found no supplier field and concluded this blocked the "biggest supplier" narrative. That
+was wrong, caught on review: a BiH winning bid is frequently a **grupa ponuđača**
+(consortium), so the winner is a *supplier group*, not a single supplier - which is
+exactly why `/SupplierGroups`, `/SupplierGroupSupplierLinks`, and
+`/SupplierGroupUnregisteredSupplierLinks` exist. The award-shaped entities never needed a
+supplier field; they need a supplier-*group* field, and that field is real, just not on
+the DTO variant checked first.
 
-**This blocks the "biggest supplier" narrative as designed.** Before writing the
-enrichment/aggregation code for that claim, one of:
-1. Find the actual link (check `/ProcedureContractSummaries` with a real `ProcedureId`
-   filter rather than unfiltered; check `/StandaloneExAnteNoticeAwards` and
-   `/AnnualMasterAgreementAwardNotices`, not yet probed; check whether the *public*
-   ejn.gov.ba web UI displays a winning supplier per contract - if the UI has it and the
-   API doesn't, that's either a different endpoint not yet found or an HTML-only fact).
-2. Drop the per-supplier aggregation from the v1 municipality-profile narrative and ship
-   without it (spend/category/termination facts, all of which *are* confirmed available,
-   stand fine on their own).
-Do not build this feature by guessing a plausible-looking join.
+**The chain, confirmed live end to end with real, current-day data:**
+
+```
+LotContractsBase.SupplierGroupId
+  -> SupplierGroups (Id, IsAwarded, LotId)
+    -> SupplierGroupSupplierLinks (SupplierGroupId, SupplierId, IsLead)
+         -> Suppliers (Name, TaxNumber, City, ...)               [registered path]
+    -> SupplierGroupUnregisteredSupplierLinks (SupplierGroupId, UnregisteredSupplierId, IsLead)
+         -> UnregisteredSuppliers (Name, TaxNumber, City, ...)   [unregistered path]
+```
+
+Verified against two real contracts:
+- `LotContractsBase` id 291904 (2015) -> `SupplierGroupId` 1451385 -> `SupplierGroups`
+  (`IsAwarded: true`) -> empty on `SupplierGroupSupplierLinks`, but
+  `SupplierGroupUnregisteredSupplierLinks` resolves to `UnregisteredSuppliers` id 44292 =
+  **"ASA PVA d.o.o. Sarajevo"** (a normal domestic company, `IsForeign: false`).
+- `LotContractsBase` id 1014641, contract dated **2026-09-01** (yesterday relative to this
+  research) -> `SupplierGroupId` 2454845 -> `SupplierGroups` (`IsAwarded: true`) ->
+  `SupplierGroupSupplierLinks` resolves to `Suppliers` id 50542 = **"MUSIC COMPANY"**
+  (Hadžići, active status, full contact/address record).
+
+**The critical gotcha for the adapter: `/LotContracts` (the "Extended" DTO) drops
+`SupplierGroupId`; `/LotContractsBase` (the plain "List" DTO) keeps it.** This inverts the
+usual assumption that "Base" means "fewer fields, safe to ignore for anything but a quick
+list sync" - here, Base carries a foreign key that Extended trades away in favor of
+denormalized display text. **Always sync `/LotContractsBase`, not `/LotContracts`, for
+anything that needs the supplier chain.** Whether the same asymmetry holds for other
+Base/Extended pairs (`Awards`/`AwardsBase`, etc.) is not yet checked - don't assume Base
+is strictly a subset of Extended's fields anywhere in this API without verifying per pair.
+
+**Correction to a second guess, also caught on review:** `UnregisteredSuppliers` does not
+mean "foreign or shell" - the example above is a normal Bosnian d.o.o. with a valid tax
+number, explicitly `IsForeign: false`. "Unregistered" more likely means "no e-JN portal
+user account" (e.g. a bid submitted on paper rather than through the electronic system),
+not a shell-company signal. Don't build any "flag foreign/opaque suppliers" logic on top
+of the registered/unregistered split without independently confirming what it actually
+denotes.
+
+**Not yet checked:** whether `SupplierGroupSupplierLinks` and
+`SupplierGroupUnregisteredSupplierLinks` are ever both populated for the same
+`SupplierGroupId` (a mixed consortium of registered + unregistered members) - the
+aggregation code should query both and union the results rather than assuming a group is
+entirely one or the other. `/AuctionParticipations` and `/BiddingInvitations` (the
+"who bid," not just "who won" fallback the reviewer suggested) weren't needed once this
+chain resolved, so they remain unprobed - fine to leave that way unless the primary chain
+turns out to have coverage gaps once run at volume.
 
 ## Correction to the brief: `/FundingSources` is not an EU-funding flag
 
@@ -166,11 +201,13 @@ money).
 
 - FBiH multi-level hierarchy (entitet → kanton → općina) not confirmed live - only an RS
   (2-level) example was sampled.
-- `...Base` twins not compared field-by-field against their full counterparts.
+- `...Base` twins not compared field-by-field against their full counterparts, except
+  `LotContracts`/`LotContractsBase` (checked - see the supplier chain section, Base wins).
+  Worth the same check on `Awards`/`AwardsBase` before assuming which variant to sync.
 - `ietfTag` locale values other than the default not probed.
-- The supplier-link gap above - needs a decision before the enrichment/aggregation step
-  in the build order (step 5), not before the ingest adapter (step 2) which doesn't need
-  it.
+- Whether `SupplierGroupSupplierLinks` and `SupplierGroupUnregisteredSupplierLinks` can
+  both be populated for one `SupplierGroupId` (mixed consortium) - query both, don't
+  assume either/or.
 - Rate-limit behavior not characterized (brief calls for "probe gently" - today's session
-  made on the order of 20 light requests with no throttling observed, which is not the
-  same as knowing the actual limit).
+  made on the order of 30 light requests across two sittings with no throttling observed,
+  which is not the same as knowing the actual limit).
