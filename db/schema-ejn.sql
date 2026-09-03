@@ -162,6 +162,19 @@ CREATE TABLE IF NOT EXISTS ejn_termination (
   type_name                   TEXT,
   decision_date                TEXT,
   additional_information      TEXT,
+  -- Separate free-text field from additional_information, not a duplicate - confirmed
+  -- live 2026-09-03 that they're populated on an either/or basis (5 sampled Prijedor
+  -- terminations all had empty additional_information but full paragraph text in
+  -- Reasons - an appeals-office decision, a budget-cycle justification). Any enrichment
+  -- reading a termination's explanation must read both or it silently drops the real
+  -- text on whichever rows use this field instead.
+  reasons                     TEXT,
+  -- LLM-enriched plain-language card fields (src/ingest/enrichEjn.js) - NULL until
+  -- enriched. plain_reason IS NULL is the enrichment queue's own "needs work" filter,
+  -- same pattern as convoca's grant_row plain_* fields.
+  plain_title                 TEXT,
+  plain_reason                TEXT,
+  enriched_at                 TEXT,
   last_updated                TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_ejn_termination_authority ON ejn_termination(contracting_authority_id);

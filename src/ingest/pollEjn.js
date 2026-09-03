@@ -411,12 +411,13 @@ export function upsertAwardRow(a) {
 const upsertTermination = dbEjn.prepare(`
   INSERT INTO ejn_termination (id, contracting_authority_id, procedure_id, procedure_name,
     lot_name, contract_type, contract_category_name, type_id, type_name, decision_date,
-    additional_information, last_updated)
+    additional_information, reasons, last_updated)
   VALUES (@Id, @ContractingAuthorityId, @ProcedureId, @ProcedureName, @LotName,
     @ContractType, @ContractCategoryName, @TypeId, @TypeName, @DecisionDate,
-    @AdditionalInformation, @LastUpdated)
+    @AdditionalInformation, @Reasons, @LastUpdated)
   ON CONFLICT(id) DO UPDATE SET type_id=excluded.type_id, type_name=excluded.type_name,
-    additional_information=excluded.additional_information, last_updated=excluded.last_updated
+    additional_information=excluded.additional_information, reasons=excluded.reasons,
+    last_updated=excluded.last_updated
 `);
 export function upsertTerminationRow(t) {
   upsertAuthorityStub(t);

@@ -380,6 +380,20 @@ of a town's spend can ever get a "Najveći dobavljač" answer. Treat ~15-20% as 
 realistic expectation for that feature's coverage across FondBiH generally, not a
 Prijedor-specific limitation to caveat once and forget.
 
+## Termination records can disagree with themselves - type_name vs. free text
+
+Found enriching a live batch (2026-09-03, termination id 2932691): `TypeName` said
+"Nijedna ponuda nije dostavljena u određenom krajnjem roku" (no offer submitted in time),
+but `AdditionalInformation` on the *same row* cited an actual appeals-office ruling and
+said the real basis was "no acceptable offer among those received" - a different official
+category. Not a sync bug or a hallucination - both fields really do disagree on this row,
+presumably a data-entry mismatch on the authority's side between the dropdown category and
+the free-text explanation they wrote. `enrichEjn.js`'s prompt reports both pieces of
+information as given rather than silently resolving the conflict, which is the right
+default (making up which one is authoritative would be worse than an occasionally
+confusing card) - but worth knowing this can happen before assuming type_name and the free
+text always tell the same story.
+
 ## Open questions for the next session, not yet resolved
 
 - `...Base` twins now checked for `LotContracts` (Base wins - has the FK Extended drops)
