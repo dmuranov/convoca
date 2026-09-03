@@ -139,6 +139,13 @@ CREATE TABLE IF NOT EXISTS ejn_award (
   contract_category_name      TEXT,
   eu_funds_used                INTEGER NOT NULL DEFAULT 0,
   is_contract_concluded       INTEGER NOT NULL DEFAULT 0,
+  -- Confirmed live 2026-09-03: a master-agreement award's `value` is the framework's
+  -- ceiling at time of award, not a same-year spend figure - a framework can run for
+  -- years and be drawn down gradually via ejn_lot_contract (which is exclusively
+  -- master-agreement call-offs; see docs/ejn-api-notes.md). Any "how much did this town
+  -- spend" total must exclude master-agreement awards' value and use lot_contract's
+  -- actual drawn value for that slice instead, or it double-counts the ceiling as spend.
+  is_master_agreement         INTEGER NOT NULL DEFAULT 0,
   last_updated                TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_ejn_award_authority ON ejn_award(contracting_authority_id);

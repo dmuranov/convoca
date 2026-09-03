@@ -390,13 +390,13 @@ export function upsertNoticeRow(n) {
 const upsertAward = dbEjn.prepare(`
   INSERT INTO ejn_award (id, contracting_authority_id, procedure_id, procedure_name,
     lot_name, value, contract_date, contract_type, contract_category_name,
-    eu_funds_used, is_contract_concluded, last_updated)
+    eu_funds_used, is_contract_concluded, is_master_agreement, last_updated)
   VALUES (@Id, @ContractingAuthorityId, @ProcedureId, @ProcedureName, @LotName, @Value,
     @ContractDate, @ContractType, @ContractCategoryName, @EuFundsUsed,
-    @IsContractConcluded, @LastUpdated)
+    @IsContractConcluded, @IsMasterAgreement, @LastUpdated)
   ON CONFLICT(id) DO UPDATE SET value=excluded.value, contract_date=excluded.contract_date,
     eu_funds_used=excluded.eu_funds_used, is_contract_concluded=excluded.is_contract_concluded,
-    last_updated=excluded.last_updated
+    is_master_agreement=excluded.is_master_agreement, last_updated=excluded.last_updated
 `);
 export function upsertAwardRow(a) {
   upsertAuthorityStub(a);
@@ -404,6 +404,7 @@ export function upsertAwardRow(a) {
     ...a,
     EuFundsUsed: a.EuFundsUsed ? 1 : 0,
     IsContractConcluded: a.IsContractConcluded ? 1 : 0,
+    IsMasterAgreement: a.IsMasterAgreement ? 1 : 0,
   });
 }
 

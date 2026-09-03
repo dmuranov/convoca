@@ -6,3 +6,4 @@ db/*.sqlite-wal
 logs/
 .operator-credentials.txt
 db/backfill-batch.state.json
+scratch-*.html

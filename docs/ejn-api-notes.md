@@ -97,10 +97,19 @@ collections.
 `/AdministrativeUnits` is a self-referencing tree: `Id`, `Name`, `HigherUnitId`,
 `HigherUnitName`, `Type`. Confirmed `Type` values (sampled): `Country`, `Entity`,
 `District` (Brčko), `Canton`, `City`, `Municipality`. Hierarchy depth varies by entity -
-a Republika Srpska municipality's `HigherUnitId` points straight at the Entity (2 levels:
-entitet → opština); a Federacija BiH municipality should point at a Canton first (3
-levels: entitet → kanton → općina/grad) - **not yet confirmed with a live FBiH example,
-worth checking before building the hierarchy sync.**
+confirmed live on both sides 2026-09-03 (Prijedor for RS, Zenica for FBiH):
+
+```
+RS:   Bosna i Hercegovina -> Republika Srpska (Entity) -> Prijedor (City) -> PRIJEDOR (Municipality)
+FBiH: Bosna i Hercegovina -> Federacija BiH (Entity) -> Zeničko-dobojski kanton (Canton)
+        -> Zenica (City) -> ZENICA (Municipality)
+```
+
+RS skips the Canton level entirely (Entity's direct children are City/Municipality
+pairs); FBiH always has a Canton between Entity and City. Both sides also confirm the
+City/Municipality split from the section below is not a Prijedor-specific quirk - Zenica
+has the identical pattern (`Id=36` City, `Id=170` Municipality, the latter nested under
+the former).
 
 `/Cities` is a *separate*, flatter collection: `Id`, `Name`, `LocalizedName`, `CountryId`.
 No `HigherUnitId`, no link back into `/AdministrativeUnits`.
@@ -197,6 +206,66 @@ field directly; don't build a `/FundingSources` join for this purpose - it answe
 different question (how a purchase was budgeted domestically, not whether it was EU
 money).
 
+## `ejn_lot_contract` is master-agreement call-offs, not a later stage of `ejn_award` - two real, generalizable consequences
+
+Found while writing the Prijedor page (2026-09-03), checked exhaustively rather than
+assumed. The first instinct - "Awards are the decision, LotContracts are the same events
+once formally contracted" - is wrong, confirmed on Prijedor's own data:
+
+- Of 322 `LotContractsBase` rows for Prijedor's authorities, **all 322** have
+  `IsMasterAgreement: true` (checked on the Extended `/LotContracts` twin, which carries
+  the flag - `LotContractsBase` doesn't). `LotContractsBase`/`LotContracts` is
+  specifically the collection for call-offs drawn against a previously-awarded framework
+  agreement, not a general "signed contract" record for any procedure.
+- `procedure_id` overlap between the two is only ~52% even restricted to the same
+  authorities and a matching date window (47 of 91 distinct lot-contract procedures also
+  appear among the authorities' award procedures) - not the near-total overlap a
+  "same event, later stage" theory would predict.
+
+**Consequence 1 - a real double-count risk in any "total spend" figure.** A
+master-agreement `Award`'s `value` is the framework's *ceiling* at time of award, not a
+same-year spend figure - a framework can be drawn down over several years via
+`LotContract` rows. Confirmed on Prijedor: 154 of 3850 awards are master-agreement awards
+worth 12.0M KM (ceiling), while the 322 `LotContract` rows against (not necessarily the
+same) frameworks total 6.5M KM (actual draws). Summing `SUM(ejn_award.value)` across all
+awards and `SUM(ejn_lot_contract.value)` on top double-counts real spend against a ceiling
+that isn't spend at all. **The fix:** exclude `is_master_agreement = 1` awards from any
+spend total, and use `ejn_lot_contract`'s value for that slice instead - the two buckets
+are then additive and non-overlapping. `ejn_award` didn't carry `is_master_agreement`
+before this was found; it's now a synced column (`upsertAwardRow` in `pollEjn.js`).
+
+**Consequence 2 - supplier identity is structurally unavailable for one-off awards, not
+just thinly covered.** Checked exhaustively before accepting this: the `Award` schema
+carries no supplier field of any kind (full property list checked, not just skimmed).
+Neither does `Lot` or `AwardNotice`. `/ProcedureContractSummaries` and
+`/NpsProcurementContractSummaries` - which schema-wise look like exactly the missing
+link (`supplierGroup`, `contractId`, `status: InProgress|Altered|Realized|Terminated|
+Repealed`, `entryType: Initial|Alteration` for amendment versioning) - are **completely
+empty across the whole API**, both Base and Extended, no filter needed to see it: `GET
+/ProcedureContractSummaries?$top=5` returns `{"value": []}`. Supplier identity is only
+ever resolvable through `ejn_lot_contract`'s `SupplierGroupId` chain, which by
+Consequence 1's finding means it only ever covers the framework-agreement slice of a
+town's spend (≈18% of the corrected total for Prijedor: 6.5M of 36.5M). This is not a
+coverage gap that improves with more data or more municipalities pulled - it's a ceiling
+set by what this API publishes. **A "Najveći dobavljač" feature must be scoped and
+labeled as covering framework-agreement spend specifically**, not spend in general - the
+Prijedor page (`scripts/buildMunicipalityPage.js`) does this by splitting the page into
+two additive totals (one-off awards, framework-agreement draws) rather than one blended
+total next to a supplier table that can only ever explain a fraction of it.
+
+If a future collection populates `/ProcedureContractSummaries` (it exists in the schema,
+so it may not be permanently empty), re-check this - it would be the correct join for
+one-off award suppliers if it ever has rows, using `IsLatest` to avoid double-counting a
+contract's amendment history (`EntryType: Initial` vs `Alteration`).
+
+**Also worth generalizing:** `LotContractsBase` and its Extended twin `/LotContracts`
+split fields in *opposite* directions - `LotContractsBase` has `SupplierGroupId` but no
+`ProcedureId`/`ContractCategoryName`; `/LotContracts` has the reverse (checked live,
+neither variant has both). This is the same "don't assume Base is a strict subset or
+superset of Extended" warning as the Awards/AwardsBase case, just cutting the other way -
+worth remembering if a future feature ever needs both category and supplier data for the
+same lot-contract row (would require fetching and merging both variants by `Id`).
+
 ## Aggregating "what did this town spend" - use CityId, not AdministrativeUnitId
 
 Found while scoping the Prijedor page (2026-09-03), and it generalizes to every
@@ -220,6 +289,31 @@ would silently exclude it. AdministrativeUnitId is still the right key for a *di
 future feature (an entity/canton-level rollup page, where "which government tier" is
 exactly the question) - the two join keys serve two different page types, not one
 "correct" and one "wrong."
+
+**Why a subtree rollup on AdministrativeUnits doesn't fix this either** (checked
+2026-09-03 after a reasonable "isn't 17+54 just a hierarchy to walk?" question): it *is* a
+real hierarchy - confirmed live, `Id=54` (`Municipality`) has `HigherUnitId=17`
+(`City`), and `Id=17` itself has `HigherUnitId=3` (`Republika Srpska`, `Type: "Entity"`).
+So the chain is `Republika Srpska -> Prijedor (City) -> PRIJEDOR (Municipality)`. A rollup
+of 17's descendants (17+54) only recovers 32 of the 55 - the 21 authorities registered
+directly against `id=3` are Prijedor's node's *ancestor*, not its descendant, and no
+downward tree-walk reaches an ancestor. The reason isn't a hierarchy bug to fix by walking
+further - it's that `AdministrativeUnitId`'s tree is organized by funding tier, and a
+physically-local authority can be attached at any tier relative to its own town's node,
+including above it. `CityId` avoids the whole question because it's a flat "where is
+this" field with no funding-tier semantics to walk in the first place.
+
+**The trap underneath this one, worth generalizing:** the wrong "not nested" conclusion
+first came from `ejn_administrative_unit.higher_unit_id` being `NULL` on the *local* rows
+for 17 and 54 - but those rows were self-heal stubs (`upsertAdministrativeUnitStub` in
+`pollEjn.js`, COALESCE-based, built only from the denormalized name/type fields a
+`ContractingAuthorities` row happens to carry), never a real fetch of `/AdministrativeUnits`
+itself, which is the only place `HigherUnitId` actually lives. A stub's `NULL` means "this
+field was never populated," not "confirmed absent" - it's a gap in provenance, not a fact
+about the record. Any field a self-heal stub *doesn't* set (same applies to `ejn_city`
+stubs, `ejn_supplier`/`ejn_unregistered_supplier` stubs) can't be used as negative evidence
+about anything until that row has gone through a real collection sync, not just a stub
+upsert. Check the live API before concluding "absent," not the local self-healed row.
 
 Also checked: only one `Cities` row exists for Prijedor (no Latin/Cyrillic duplicate on
 that side) - script variation only shows up in individual authority *names* (e.g. "ЈУ
@@ -267,10 +361,27 @@ AdministrativeUnits/Cities/CpvCodes/Suppliers, not yet individually re-verified 
 completeness against what pollEjn.js reads), others would quietly remove the one field
 a whole feature depends on.
 
+## Confirmed generalizes beyond Prijedor: the master-agreement spend ratio (checked on Zenica, FBiH)
+
+Pulled Zenica (id 129, Zeničko-dobojski kanton, FBiH - 106 authorities, ~4x Prijedor's
+volume) specifically to check whether Prijedor's numbers were a fluke of one town. They
+weren't:
+
+| | Prijedor (RS) | Zenica (FBiH) |
+|---|---|---|
+| One-off awards (`is_master_agreement=0`) | 29.9M KM | 95.5M KM |
+| Framework-agreement draws (`ejn_lot_contract`) | 6.5M KM | 20.2M KM |
+| Corrected total | 36.5M KM | 115.7M KM |
+| Framework-agreement share of total | **17.9%** | **17.5%** |
+
+Two very different towns (different entity, ~1.4x the population, ~4x the raw award
+volume) land within half a point of each other on the one ratio that determines how much
+of a town's spend can ever get a "Najveći dobavljač" answer. Treat ~15-20% as the
+realistic expectation for that feature's coverage across FondBiH generally, not a
+Prijedor-specific limitation to caveat once and forget.
+
 ## Open questions for the next session, not yet resolved
 
-- FBiH multi-level hierarchy (entitet → kanton → općina) not confirmed live - only an RS
-  (2-level) example was sampled.
 - `...Base` twins now checked for `LotContracts` (Base wins - has the FK Extended drops)
   and `Awards`/`AnnouncementProcedureNotices` (Extended wins - Base drops
   contractingAuthorityId or the whole denormalized authority block; see the $top-cap
