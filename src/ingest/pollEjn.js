@@ -34,7 +34,7 @@
 // ('1900-01-01T00:00:00Z', 0), which makes backfill and steady-state incremental sync the
 // same code path - there's no separate "initial load" mode to keep in sync with this one.
 import { dbEjn, alertEjn as alert } from '../dbEjn.js';
-import { fetchPage, fetchById, fetchByField, THROTTLE_MS, sleep } from './ejnClient.js';
+import { fetchPage, fetchById, fetchByField, hasAnyRows, THROTTLE_MS, sleep } from './ejnClient.js';
 
 // Cap on pages (1000 rows/page) pulled per collection per invocation. Deliberately small
 // for the first real runs - drain a bounded sample, read the actual rows, then raise this
@@ -487,6 +487,19 @@ export async function pollEjnOnce() {
   await stage('LotContractsBase', () => syncCollection('LotContractsBase', (r) => upsertLotContract.run(r), {
     beforeInsert: resolveLotContractFks,
   }));
+
+  // Watch for the Agency ever populating /ProcedureContractSummaries - confirmed empty
+  // API-wide 2026-09-03 (see docs/ejn-api-notes.md), but if it stops being empty, one-off
+  // award supplier attribution becomes possible and the municipality page's whole
+  // "supplier data only covers framework agreements" framing needs revisiting. One cheap
+  // request per poll cycle costs nothing; finding out months late would not.
+  try {
+    if (await hasAnyRows('ProcedureContractSummaries')) {
+      alert('ejn_sync', 'ProcedureContractSummaries now has data (was empty API-wide as of 2026-09-03) - re-check docs/ejn-api-notes.md and buildMunicipalityPage.js supplier attribution scope');
+    }
+  } catch (e) {
+    alert('ejn_sync', `ProcedureContractSummaries watch check failed: ${e.message}`);
+  }
 
   console.log('ejn poll done:', JSON.stringify(results));
   return results;

@@ -10,13 +10,18 @@
 // not a same-year spend figure. Summing both totals naively double-counts that ceiling
 // against its own real drawdown. So the page deliberately splits spend into two additive,
 // non-overlapping buckets - one-off awards (is_master_agreement=0) and realized
-// framework-agreement drawdowns (ejn_lot_contract) - and states the split explicitly on
-// the page, rather than showing one blended total next to a supplier table that only
-// covers a fraction of it. Supplier identity is ALSO structurally only available for the
-// framework-agreement bucket: the main Award record carries no supplier field at all in
-// this API (checked exhaustively - Lots, AwardNotices, and the ProcedureContractSummaries
-// collection that looked like the missing link are all empty of that data). That's why
-// "Najveći dobavljač" is scoped to, and labeled as, the framework-agreement slice only.
+// framework-agreement drawdowns (ejn_lot_contract) - and states the split explicitly.
+//
+// Supplier identity is ALSO structurally only available for the framework-agreement
+// bucket: the main Award record carries no supplier field at all in this API (checked
+// exhaustively - Lots, AwardNotices, and the ProcedureContractSummaries collection that
+// looked like the missing link are all empty of that data). Confirmed on two towns in
+// different entities (Prijedor, Zenica) that this bucket is a stable ~17-18% of total
+// spend - a real, permanent ceiling on "Najveći dobavljač" coverage, not a data-volume
+// problem that improves later. So the page is built around what has complete coverage -
+// total spend, category breakdown, and cancellations - and the supplier table is placed
+// as a clearly-labeled, visually secondary aside, not a headline feature next to numbers
+// it can only ever partially explain.
 //
 // Usage: node scripts/buildMunicipalityPage.js [CITY_NAME] [output path]
 import { dbEjn } from '../src/dbEjn.js';
@@ -85,6 +90,9 @@ const html = `<!doctype html>
   table { width: 100%; border-collapse: collapse; }
   td, th { text-align: left; padding: .3rem .5rem; border-bottom: 1px solid #eee; }
   .termination { background: #fdf3ee; }
+  .aside { border: 1px dashed #ccc; border-radius: 8px; padding: .8rem 1.2rem; margin: 1.5rem 0; background: #fafafa; }
+  .aside h4 { margin: 0 0 .3rem; font-size: .95rem; color: #445; }
+  .aside table { font-size: .9rem; }
   .method-note { font-size: .85rem; color: #667; border-top: 1px solid #ddd; margin-top: 2rem; padding-top: 1rem; }
 </style>
 </head>
@@ -94,14 +102,8 @@ const html = `<!doctype html>
 
 <div class="card">
   <p><strong>${esc(city.name)} je u posljednjih godinu dana potrošio ${eur(totals.total + (lotContractTotal.total || 0))} na ${totals.n + lotContractTotal.n} nabavki</strong>${totals.eu ? ` (${totals.eu} finansirano EU sredstvima)` : ''}.</p>
-  <p class="muted">Od toga ${eur(totals.total)} kroz ${totals.n} pojedinačnih postupaka javne nabavke, i ${eur(lotContractTotal.total)} kroz ${lotContractTotal.n} realizovanih narudžbi po okvirnim sporazumima (vidi ispod).</p>
-  <p>Najviše na (pojedinačni postupci): ${categories.map(c => `${esc(c.contract_category_name)} (${eur(c.total)}, ${c.n})`).join(', ')}.</p>
-</div>
-
-<div class="card">
-  <h3>Najveći dobavljači po okvirnim sporazumima</h3>
-  <p class="muted">Identitet dobavljača je dostupan samo za narudžbe po okvirnim sporazumima (${lotContractTotal.n} narudžbi, ${eur(lotContractTotal.total)}) - izvor javnih nabavki ne objavljuje dobavljača za pojedinačne postupke odvojeno od ovog mehanizma, pa ova lista ne pokriva ${eur(totals.total)} potrošeno kroz pojedinačne postupke iznad.</p>
-  <table>${suppliers.map(s => `<tr><td>${esc(s.name)}</td><td>${s.n} ugovora</td><td>${eur(s.total)}</td></tr>`).join('')}</table>
+  <p class="muted">Od toga ${eur(totals.total)} kroz ${totals.n} pojedinačnih postupaka javne nabavke, i ${eur(lotContractTotal.total)} kroz ${lotContractTotal.n} realizovanih narudžbi po okvirnim sporazumima.</p>
+  <p>Najviše na: ${categories.map(c => `${esc(c.contract_category_name)} (${eur(c.total)}, ${c.n})`).join(', ')}.</p>
 </div>
 
 <div class="card termination">
@@ -111,6 +113,16 @@ const html = `<!doctype html>
     ${t.decision_date ? `<br><span class="muted">${t.decision_date.slice(0, 10)}</span>` : ''}
     ${t.additional_information ? `<br>${esc(t.additional_information.trim().slice(0, 300))}` : ''}</p>
   `).join('')}
+</div>
+
+<div class="aside">
+  <h4>Dobavljači po okvirnim sporazumima (djelimičan podatak)</h4>
+  <p class="muted">Identitet dobavljača je dostupan samo za narudžbe po okvirnim sporazumima
+  (${lotContractTotal.n} narudžbi, ${eur(lotContractTotal.total)} - obično oko petine ukupne
+  potrošnje). Izvor ne objavljuje dobavljača za pojedinačne postupke
+  (${eur(totals.total)} iznad) odvojeno od ovog mehanizma, pa ova lista ne predstavlja
+  najveće dobavljače grada u cjelini.</p>
+  <table>${suppliers.map(s => `<tr><td>${esc(s.name)}</td><td>${s.n} ugovora</td><td>${eur(s.total)}</td></tr>`).join('')}</table>
 </div>
 
 <p class="method-note">

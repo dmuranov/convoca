@@ -58,4 +58,16 @@ export async function fetchByField(collection, field, value) {
   return json.value || [];
 }
 
+// Cheapest possible "does this collection have any data at all" probe - a single
+// unfiltered $top=1 request. Used to watch /ProcedureContractSummaries, which is present
+// in the schema but empty API-wide as of 2026-09-03 (see docs/ejn-api-notes.md); if the
+// Agency ever populates it, supplier attribution for one-off awards becomes possible and
+// changes what the municipality page can claim - worth knowing the moment it happens,
+// not months later.
+export async function hasAnyRows(collection) {
+  const query = new URLSearchParams({ '$top': '1' });
+  const json = await ejnGet(collection, query.toString());
+  return (json.value || []).length > 0;
+}
+
 export { THROTTLE_MS, PAGE_SIZE, sleep };
