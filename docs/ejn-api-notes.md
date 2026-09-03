@@ -226,13 +226,58 @@ that side) - script variation only shows up in individual authority *names* (e.g
 ОСНОВНА ШКОЛА" among Prijedor's own authorities), which is a rendering concern, not a
 join-correctness one.
 
+## $top is silently capped at 50 on most "Extended" collections - a real pagination bug this caused, now fixed
+
+Found scoping the Prijedor pull (2026-09-03): requesting `$top=1000` on
+`AnnouncementProcedureNotices`, `Awards`, `Terminations`, `ContractingAuthorities`,
+`AdministrativeUnits`, `Cities`, `CpvCodes`, `Suppliers`, and `UnregisteredSuppliers` all
+silently return **50 rows regardless of the requested `$top`** - not an error, just a
+quiet ceiling. `LotContractsBase`, `SupplierGroups`, `SupplierGroupSupplierLinks`, and
+`SupplierGroupUnregisteredSupplierLinks` correctly return up to the documented max of
+1000. The pattern correlates with the Extended/Base split: every capped collection above
+is the *default-named* ("Extended") variant; each has a `...Base` twin that does honor
+`$top=1000`.
+
+**This was a live bug in `pollEjn.js`, not just a research curiosity.** `syncCollection`'s
+"caught up" check was `rows.length < PAGE_SIZE` (PAGE_SIZE=1000) - on every capped
+collection this is *always* true (they never return more than 50), so every prior sync
+run logged "(caught up)" and stopped after one page, regardless of how much more data
+actually existed. `AnnouncementProcedureNotices` alone has 619,802 rows; every backfill
+run to date fetched at most 50 of them per invocation and incorrectly believed it was
+done. Not a data-loss bug (the watermark still advances correctly by whatever 50 it did
+get, so the next run picks up where it left off) - a throughput/pacing bug: the effective
+page size for these collections is 50, not 1000, so a given `EJN_PAGE_CAP` (a *count of
+requests*) now does ~1/20th the work per invocation on capped collections that it does on
+uncapped ones. **Fixed** in `syncCollection`: "caught up" is now decided only by a truly
+*empty* page, never a short one - this is correct regardless of which cap (or none) the
+server applies to a given collection, so no per-collection special-casing was needed.
+
+**Why the fix isn't "just switch everything to the Base variant that honors $top"**:
+checked every Base twin's actual field list against what the sync depends on, not just
+whether $top works. `AwardsBase` has **no `contractingAuthorityId` field at all** -
+confirmed live, not just from the schema - only `NoticeId`, and direct/negotiated awards
+routinely have `NoticeId: null` (confirmed earlier in this same doc). Switching Awards to
+its Base variant would silently break authority attribution for exactly that category of
+award, with no recovery path. `AnnouncementProcedureNoticesBase` similarly drops every
+denormalized `ContractingAuthority*` field the self-heal in `upsertAuthorityStub` depends
+on. The Base/Extended split isn't "Base is always safe and faster" (as the LotContracts
+case first suggested) - each pair needs checking on its own; some Base variants are a
+safe, faster substitute (LotContracts, and likely ContractingAuthorities/
+AdministrativeUnits/Cities/CpvCodes/Suppliers, not yet individually re-verified for field
+completeness against what pollEjn.js reads), others would quietly remove the one field
+a whole feature depends on.
+
 ## Open questions for the next session, not yet resolved
 
 - FBiH multi-level hierarchy (entitet → kanton → općina) not confirmed live - only an RS
   (2-level) example was sampled.
-- `...Base` twins not compared field-by-field against their full counterparts, except
-  `LotContracts`/`LotContractsBase` (checked - see the supplier chain section, Base wins).
-  Worth the same check on `Awards`/`AwardsBase` before assuming which variant to sync.
+- `...Base` twins now checked for `LotContracts` (Base wins - has the FK Extended drops)
+  and `Awards`/`AnnouncementProcedureNotices` (Extended wins - Base drops
+  contractingAuthorityId or the whole denormalized authority block; see the $top-cap
+  section above). Still unchecked: `Terminations`, `ContractingAuthorities`,
+  `AdministrativeUnits`, `Cities`, `CpvCodes`, `Suppliers`, `UnregisteredSuppliers` - all
+  confirmed capped at 50 on the Extended side, but not yet verified whether their Base
+  twin keeps every field pollEjn.js currently reads before switching any of them over.
 - `ietfTag` locale values other than the default not probed.
 - Whether `SupplierGroupSupplierLinks` and `SupplierGroupUnregisteredSupplierLinks` can
   both be populated for one `SupplierGroupId` (mixed consortium) - query both, don't

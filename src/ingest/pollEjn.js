@@ -34,7 +34,7 @@
 // ('1900-01-01T00:00:00Z', 0), which makes backfill and steady-state incremental sync the
 // same code path - there's no separate "initial load" mode to keep in sync with this one.
 import { dbEjn, alertEjn as alert } from '../dbEjn.js';
-import { fetchPage, fetchById, fetchByField, PAGE_SIZE, THROTTLE_MS, sleep } from './ejnClient.js';
+import { fetchPage, fetchById, fetchByField, THROTTLE_MS, sleep } from './ejnClient.js';
 
 // Cap on pages (1000 rows/page) pulled per collection per invocation. Deliberately small
 // for the first real runs - drain a bounded sample, read the actual rows, then raise this
@@ -64,6 +64,15 @@ const saveSyncState = dbEjn.prepare(`
 // runs once per page *before* the transaction opens, for async work a row needs done
 // first (e.g. lot contracts' on-demand supplier-group fetch) - keeps every DB write for
 // the page inside one transaction while still allowing async prep ahead of it.
+//
+// "Caught up" is decided ONLY by an empty page, never by a short one - confirmed live
+// 2026-09-03 that AnnouncementProcedureNotices and Awards silently cap at 50 rows
+// regardless of $top (even $top=1000, the documented max), while SupplierGroups and
+// LotContractsBase correctly return up to 1000. `rows.length < PAGE_SIZE` as a "no more
+// data" signal was wrong for exactly the two highest-volume collections in this whole
+// sync - every prior "(caught up)" log line for those two was false, silently pacing the
+// backfill at ~50/run instead of up to 1000/page. This one-page-per-invocation floor was
+// invisible until a targeted pull needed more than 50 rows and got the true count instead.
 async function syncCollection(collection, upsertRow, { maxPages = PAGE_CAP, beforeInsert } = {}) {
   let { last_updated_wm: lastUpdatedWm, last_id_wm: lastIdWm } = getSyncState(collection);
   let pages = 0, totalSynced = 0, caughtUp = false;
@@ -79,7 +88,6 @@ async function syncCollection(collection, upsertRow, { maxPages = PAGE_CAP, befo
     saveSyncState.run(lastUpdatedWm, lastIdWm, rows.length, collection);
     totalSynced += rows.length;
     pages++;
-    if (rows.length < PAGE_SIZE) { caughtUp = true; break; }
     await sleep(THROTTLE_MS);
   }
   console.log(`ejn sync ${collection}: ${totalSynced} row(s) over ${pages} page(s)${caughtUp ? ' (caught up)' : ' (page cap reached, more remain)'}`);
@@ -124,7 +132,7 @@ const upsertCpvCode = dbEjn.prepare(`
   ON CONFLICT(id) DO UPDATE SET code=excluded.code, description=excluded.description,
     root_id=excluded.root_id, last_updated=excluded.last_updated
 `);
-const upsertTerminationType = dbEjn.prepare(`
+export const upsertTerminationType = dbEjn.prepare(`
   INSERT INTO ejn_termination_type (id, name, status, last_updated)
   VALUES (@Id, @Name, @Status, @LastUpdated)
   ON CONFLICT(id) DO UPDATE SET name=excluded.name, status=excluded.status,
@@ -159,7 +167,7 @@ const upsertAuthorityFull = dbEjn.prepare(`
      OR ejn_contracting_authority.city_id IS NULL
 `);
 
-function upsertAuthority(a) {
+export function upsertAuthority(a) {
   // Self-heal city/administrative-unit from this record's own real numeric IDs, before
   // inserting the authority itself - the dedicated Cities/AdministrativeUnits syncs run
   // first in the overall order (step 1), but a specific city/unit id can still be missing
@@ -374,7 +382,7 @@ const upsertNotice = dbEjn.prepare(`
     contract_category_name=excluded.contract_category_name, has_lots=excluded.has_lots,
     award_criterion=excluded.award_criterion, last_updated=excluded.last_updated
 `);
-function upsertNoticeRow(n) {
+export function upsertNoticeRow(n) {
   upsertAuthorityStub(n);
   upsertNotice.run({ ...n, HasLots: n.HasLots ? 1 : 0 });
 }
@@ -390,7 +398,7 @@ const upsertAward = dbEjn.prepare(`
     eu_funds_used=excluded.eu_funds_used, is_contract_concluded=excluded.is_contract_concluded,
     last_updated=excluded.last_updated
 `);
-function upsertAwardRow(a) {
+export function upsertAwardRow(a) {
   upsertAuthorityStub(a);
   upsertAward.run({
     ...a,
@@ -409,14 +417,14 @@ const upsertTermination = dbEjn.prepare(`
   ON CONFLICT(id) DO UPDATE SET type_id=excluded.type_id, type_name=excluded.type_name,
     additional_information=excluded.additional_information, last_updated=excluded.last_updated
 `);
-function upsertTerminationRow(t) {
+export function upsertTerminationRow(t) {
   upsertAuthorityStub(t);
   upsertTermination.run(t);
 }
 
 // ---- lot contracts (needs both an authority and a supplier group to exist) ----
 
-const upsertLotContract = dbEjn.prepare(`
+export const upsertLotContract = dbEjn.prepare(`
   INSERT INTO ejn_lot_contract (id, contracting_authority_id, supplier_group_id, value, contract_date, last_updated)
   VALUES (@Id, @ContractingAuthorityId, @SupplierGroupId, @Value, @ContractDate, @LastUpdated)
   ON CONFLICT(id) DO UPDATE SET value=excluded.value, contract_date=excluded.contract_date,
@@ -431,7 +439,7 @@ const upsertLotContract = dbEjn.prepare(`
 // upsert itself. In practice the authority almost always already exists (contracting
 // authorities sync runs first, step 2) and this is a no-op lookup; it's not skipped
 // outright because "almost always" isn't "always" - see resolveAuthorityFk.
-async function resolveLotContractFks(rows) {
+export async function resolveLotContractFks(rows) {
   for (const c of rows) {
     if (c.ContractingAuthorityId != null) await resolveAuthorityFk(c.ContractingAuthorityId);
     if (c.SupplierGroupId != null) await resolveSupplierGroupFk(c.SupplierGroupId);
