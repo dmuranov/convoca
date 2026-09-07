@@ -56,6 +56,14 @@ const HISTORICAL_DRAIN_CAP = Number(process.env.LICITACION_BACKLOG_CAP || 50);
 // See poll.js for the reasoning: enriched===0 alone misses "40 of 50 failed", and a flat
 // batchFailed>0 would fire on the occasional single benign failure every normal day.
 const BATCH_FAILURE_ALERT_RATIO = Number(process.env.POLL_BATCH_FAILURE_RATIO || 0.3);
+// entries.length===0 only catches the feed breaking outright (auth, schema, empty
+// response - see below). It does NOT catch the feed responding normally with entries but
+// none of them actually new: discovered 2026-09-07 when PLACSP's own base page sat frozen
+// at the same <updated> timestamp for ~3.5 days straight (a real upstream stall, not a
+// convoca bug - the poller kept running on schedule and correctly found 0 new each time,
+// which is indistinguishable from a genuine quiet day without this check). entries[0] is
+// the single newest item the feed offers (page 1, newest-first) after every walkFeed call.
+const STALE_FEED_HOURS = Number(process.env.PLACSP_STALE_HOURS || 30);
 
 // Guards against a second concurrent walk (cron firing while a manual "Sondear PLACSP"
 // trigger is still running, or an impatient double-click) - two walkFeed runs against the
@@ -113,6 +121,14 @@ async function runPoll() {
   // feed itself broke silently, not that nothing happened.
   if (entries.length === 0) {
     alert('placsp_poll', 'zero entries returned from the PLACSP feed - check reachability');
+  } else {
+    const newestMs = Date.parse(entries[0].updated);
+    const ageHours = (Date.now() - newestMs) / 3_600_000;
+    if (Number.isFinite(ageHours) && ageHours > STALE_FEED_HOURS) {
+      alert('placsp_stale', `PLACSP feed's newest entry is ${ageHours.toFixed(1)}h old `
+        + `(> ${STALE_FEED_HOURS}h threshold, expediente ${entries[0].expediente}) - `
+        + `feed responded normally but hasn't advanced; likely stalled upstream at PLACSP, not a poll failure`);
+    }
   }
   return enriched;
 }
