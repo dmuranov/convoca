@@ -13,6 +13,13 @@
 //
 //   node scripts/reenrich-licitaciones.js            # rows missing resumen
 //   node scripts/reenrich-licitaciones.js --all      # every row
+//   node scripts/reenrich-licitaciones.js --long     # already-enriched rows whose raw_text
+//                                                     # exceeds 60000 chars - redoes anything
+//                                                     # written before 2026-09-07's fix that
+//                                                     # sliced the model's context to 60000
+//                                                     # chars while raw_text ran up to 150000
+//                                                     # (see enrichLicitacion.js's
+//                                                     # extractContext for the full story)
 //
 // Chunked (CHUNK rows at a time, default 300): a full backlog run loading every row's
 // raw_text (up to 150KB each) into memory at once OOM-killed the shared VM's 3.8GB
@@ -24,18 +31,21 @@ import { db } from '../src/db.js';
 import { extractContext, enrichBatch } from '../src/ingest/enrichLicitacion.js';
 
 const all = process.argv.includes('--all');
+const long = process.argv.includes('--long');
 const CHUNK = Number(process.env.REENRICH_CHUNK || 300);
-const where = all ? '' : 'WHERE resumen IS NULL';
+const where = all ? '' : long ? 'WHERE resumen IS NOT NULL AND LENGTH(raw_text) > 60000' : 'WHERE resumen IS NULL';
+const label = all ? ' (--all)' : long ? ' (--long, past the old 60000-char context cutoff)' : ' missing resumen';
 const total = db.prepare(`SELECT COUNT(*) c FROM licitacion_row ${where}`).get().c;
-console.log(`re-enriching ${total} licitación(es)${all ? ' (--all)' : ' missing resumen'} in chunks of ${CHUNK}`);
+console.log(`re-enriching ${total} licitación(es)${label} in chunks of ${CHUNK}`);
 
-// --all's WHERE-less query doesn't shrink as rows get enriched (unlike the default
-// resumen-IS-NULL query, where already-done rows just drop out), so it needs an OFFSET or
-// it would reprocess the same first CHUNK forever.
+// --all and --long's WHERE doesn't shrink as rows get enriched (unlike the default
+// resumen-IS-NULL query, where already-done rows just drop out), so both need an OFFSET or
+// they'd reprocess the same first CHUNK forever.
+const paged = all || long;
 const select = db.prepare(`SELECT * FROM licitacion_row ${where} ORDER BY created_at DESC LIMIT ? OFFSET ?`);
 let totalEnriched = 0, totalFailed = 0, done = 0;
 for (;;) {
-  const rows = select.all(CHUNK, all ? done : 0);
+  const rows = select.all(CHUNK, paged ? done : 0);
   if (!rows.length) break;
   const prepared = rows.map(r => ({
     id: r.id,
