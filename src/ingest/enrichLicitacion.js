@@ -124,7 +124,15 @@ export function extractContext(lic) {
     `Duración: ${lic.duracion || 'no consta'}`,
     `Número de lotes: ${lic.numLotes}`,
     `Objeto: ${lic.titulo || 'no consta'}`,
-    lic.rawText ? `\n--- TEXTO DE LOS PLIEGOS (extracto) ---\n${lic.rawText.slice(0, 60000)}` : '',
+    // Was sliced to 60000 chars - found 2026-09-07 that 94% of published rows have
+    // raw_text longer than that (140/220 hit the full 150000-char storage cap), so the
+    // model was writing requisitos_clave/complejidad_motivo off maybe the first 15-20
+    // pages of PCAP/PPT documents that can run 150-200+ pages, with no signal to anyone
+    // that the rest was never read - campos_ausentes only flags what's missing from what
+    // it saw, not what exists past the cutoff. Haiku 4.5's 200K-token context has room for
+    // the full MAX_RAW_TEXT (~35-40K tokens for Spanish text) many times over; there was
+    // no technical reason for the two limits to differ.
+    lic.rawText ? `\n--- TEXTO DE LOS PLIEGOS (extracto) ---\n${lic.rawText.slice(0, MAX_RAW_TEXT)}` : '',
   ].filter(Boolean).join('\n');
 }
 
@@ -201,10 +209,9 @@ async function fetchOnePliego(p, attempt = 1) {
   return t ? `[${p.nombre}]\n${t}` : null;
 }
 
-// Stored raw_text has run past 600KB on real pliegos, but extractContext only ever uses
-// the first 60000 chars of it - the rest just sits resident across every prepared entry in
-// a poll run for no benefit. Cap well above the context slice, not at it, so a future
-// context-window bump doesn't silently start truncating mid-document.
+// Stored raw_text has run past 600KB on real pliegos - cap storage here, and extractContext
+// (above) now slices to this same limit rather than a smaller one, so nothing fetched is
+// silently dropped from what the model actually reads (see the note there, 2026-09-07).
 const MAX_RAW_TEXT = 150_000;
 
 async function fetchPliegosText(pliegos, expediente) {
