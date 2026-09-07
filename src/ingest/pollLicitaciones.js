@@ -36,23 +36,20 @@ const MAX_PAGES = Number(process.env.PLACSP_MAX_PAGES || 15);
 // Two tiers, two caps, but only ONE reason enrichment itself is paced: blast radius on
 // unsampled output. Enriching writes titulo/resumen to licitacion_row - nothing here ever
 // touches the public site or the search index; publishing (operator console, manual) is
-// the only step that does. 1,743 rows is a lot to run before anyone has read the output of
-// a smaller batch, so both tiers stay capped until a sample's been reviewed - a systematic
-// prompt/schema weakness is cheaper to find at a few hundred than at the full backlog.
-// This is NOT about index composition. (A prior version of this comment conflated the two
-// - enriching the historical tier "slowly" was never protecting the index; only refusing
-// to publish it does. See the estado gate on publish-batch in routes/operator.js for where
-// that actually lives, and convoca-claude-cli-prod-risk memory for the full correction.)
+// the only step that does. This is NOT about index composition. (A prior version of this
+// comment conflated the two - enriching the historical tier "slowly" was never protecting
+// the index; only refusing to publish it does. See the estado gate on publish-batch in
+// routes/operator.js for where that actually lives, and convoca-claude-cli-prod-risk memory
+// for the full correction.)
+// A sample of both tiers was reviewed 2026-09-07 (clean titulo/resumen, sensible
+// campos_ausentes, no hallucination) and the backlog cleared in one shot via
+// scripts/reenrich-licitaciones.js. These caps now just bound one day's worth of ordinary
+// drift (a poll interrupted mid-run, a batch that timed out) rather than a whole unreviewed
+// backlog - raised well past daily new-row volume (~150-180/day) so they never bind in
+// practice, not left at the original review-pacing values.
 const OPEN_TENDER_ESTADOS = ['licitacion', 'anuncio_previo', 'pendiente_adjudicacion'];
-// ~733 rows currently qualify; capped well under that for the first run on purpose - drain
-// a few hundred, read a sample of the actual cards, then raise this once that's done rather
-// than clearing the whole open tier in one unreviewed shot.
-const OPEN_TENDER_DRAIN_CAP = Number(process.env.OPEN_TENDER_DRAIN_CAP || 250);
-// Historical tier (resuelta/adjudicada/anulada, ~1,010 rows) - same review-pacing logic,
-// held lower only because nobody's reviewed a sample of *this* tier's output yet either.
-// Once reviewed, there's no reason left to keep this slow - enriching them doesn't publish
-// them, and this cap was never what stood between them and the index.
-const HISTORICAL_DRAIN_CAP = Number(process.env.LICITACION_BACKLOG_CAP || 50);
+const OPEN_TENDER_DRAIN_CAP = Number(process.env.OPEN_TENDER_DRAIN_CAP || 1000);
+const HISTORICAL_DRAIN_CAP = Number(process.env.LICITACION_BACKLOG_CAP || 1000);
 // See poll.js for the reasoning: enriched===0 alone misses "40 of 50 failed", and a flat
 // batchFailed>0 would fire on the occasional single benign failure every normal day.
 const BATCH_FAILURE_ALERT_RATIO = Number(process.env.POLL_BATCH_FAILURE_RATIO || 0.3);
