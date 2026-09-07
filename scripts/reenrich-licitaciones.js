@@ -40,9 +40,14 @@ console.log(`re-enriching ${total} licitación(es)${label} in chunks of ${CHUNK}
 
 // --all and --long's WHERE doesn't shrink as rows get enriched (unlike the default
 // resumen-IS-NULL query, where already-done rows just drop out), so both need an OFFSET or
-// they'd reprocess the same first CHUNK forever.
+// they'd reprocess the same first CHUNK forever. ORDER BY created_at alone isn't unique -
+// rows written by the same poll/backfill run share a timestamp to the second - so OFFSET
+// paging over it silently skipped 12/672 rows on the 2026-09-07 --long run (ties land on
+// different sides of a page boundary depending on scan order, which isn't guaranteed
+// stable across separate queries). id is the primary key and always unique, so it's a
+// stable tiebreaker.
 const paged = all || long;
-const select = db.prepare(`SELECT * FROM licitacion_row ${where} ORDER BY created_at DESC LIMIT ? OFFSET ?`);
+const select = db.prepare(`SELECT * FROM licitacion_row ${where} ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?`);
 let totalEnriched = 0, totalFailed = 0, done = 0;
 for (;;) {
   const rows = select.all(CHUNK, paged ? done : 0);
