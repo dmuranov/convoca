@@ -24,6 +24,15 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
 app.disable('x-powered-by');
 app.set('trust proxy', 1); // behind Caddy
+
+// One public address: www.plazoabierto.es answered with the whole site (Caddy serves both
+// names), so every page existed twice for Google. Send www to the bare domain, keeping the
+// path and query, with a permanent redirect.
+app.use((req, res, next) => {
+  const host = String(req.headers.host || '').toLowerCase();
+  if (host.startsWith('www.')) return res.redirect(301, `https://${host.slice(4)}${req.originalUrl}`);
+  next();
+});
 app.use(express.json({ limit: '64kb' }));
 
 seedOperator();
