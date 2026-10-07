@@ -42,19 +42,20 @@ function levelFromNivel1(nivel1) {
 const PILOT_RE = /CASTILLA Y LE[ÓO]N|PALENCIA/i;
 export const isPilotScope = (row) => PILOT_RE.test(`${row.nivel2 || ''} ${row.nivel3 || ''}`);
 
-// Grants aimed exclusively at for-profit activity are not what this site is for.
-const BUSINESS_ONLY = 'PYME Y PERSONAS FÍSICAS QUE DESARROLLAN ACTIVIDAD ECONÓMICA';
-
 // Decide whether a national row earns an LLM extraction. Returns null to enrich,
 // or a short reason string to skip. Pilot rows bypass this entirely.
+//
+// Beneficiary type is deliberately NOT screened. An earlier version dropped anything whose
+// beneficiaries were only "PYME Y PERSONAS FÍSICAS QUE DESARROLLAN ACTIVIDAD ECONÓMICA",
+// which silently excluded the LEADER calls the GALs publish here — rural micro-enterprise
+// aid is the whole point of LEADER, and a village's autónomo is the same person the rest
+// of the directory serves. The cost is that some purely urban business aid now gets
+// enriched too; the territory filter, not the beneficiary type, is what keeps the
+// directory rural.
 export function screen(detail, today = new Date().toISOString().slice(0, 10)) {
   const tipo = detail.tipoConvocatoria || '';
   if (!/concurrencia competitiva/i.test(tipo)) {
     return `no competitiva (${tipo || 'tipo desconocido'})`;
-  }
-  const benef = (detail.tiposBeneficiarios || []).map(t => t.descripcion || '');
-  if (benef.length && benef.every(b => b === BUSINESS_ONLY)) {
-    return 'solo actividad económica';
   }
   // Nobody can apply to a closed call, so never pay to extract one. Barely matters on the
   // daily poll; on a long backfill it is the difference between enriching everything BDNS

@@ -17,14 +17,20 @@ demand signals. Spec: `../Convoca_V5_Spec.md`.
   only, no LLM, safe to re-run. Also canonicalises province names and clears leftovers.
 - `scripts/build-municipios.js` / `scripts/build-pedanias.js` — rebuild the place dictionaries
   from INE and the Registro de Entidades Locales. Re-run yearly; both write into `data/`.
+- `scripts/build-gal.js` — rebuilds `data/gal.json` (LEADER GAL per municipality, Castilla
+  y León). About 2,200 throttled lookups, roughly 15 minutes. Re-run per programme period.
 
 ## Scope — two audiences
 
 The poll sweeps **all of Spain**, then splits by audience:
 
-- **Grassroots directory (national).** Only what a village, association or club can
-  actually apply to. `screen()` in `poll.js` drops anything that is not
-  *Concurrencia competitiva* and anything aimed solely at for-profit activity.
+- **Grassroots directory (national).** Only what someone in a village can actually apply
+  to. `screen()` in `poll.js` drops anything that is not *Concurrencia competitiva*, and
+  nothing else — beneficiary type is not screened. Rural micro-enterprise aid counts:
+  the GALs publish their LEADER calls through BDNS (see below) and those are aimed at
+  autónomos and small firms, so a beneficiary-type filter silently removed the single
+  most relevant source of rural funding there is. Territory, not beneficiary type, is
+  what keeps the directory rural.
 - **Palencia / Castilla y León (pilot).** Bypasses the screen entirely — direct awards
   and convenios included, because "who already got what" is the intelligence the
   Diputación is buying.
@@ -37,6 +43,40 @@ enriched**, i.e. ~910/month rather than ~3,400.
 
 Skipped rows are stored with a `skip_reason` and never reconsidered — dedupe on
 `bdns_ref` means each reference costs at most one detail call, ever.
+
+### LEADER / Grupos de Acción Local
+
+No separate scraper is needed for LEADER: the GALs publish their own convocatorias into
+BDNS, filed under `nivel1 = 'OTROS'` with the GAL itself as `nivel2` (`ARADUEY-CAMPOS —
+ASOCIACIÓN INTERMUNICIPAL ... TIERRA DE CAMPOS PALENTINA`). The daily nationwide sweep
+already picks them up and `regiones` carries proper NUTS codes, so territory resolves
+normally. `OTROS` is a mixed bag — universities and foundations file there too — so these
+rows are not specially cased anywhere; they flow through as ordinary convocatorias.
+
+**Which GAL is mine?** BDNS cannot answer that: it names the GAL and its province, never
+its villages, and comarcas do not follow provinces (Villotilla, in Palencia, belongs to
+Páramos y Valles, not to Araduey-Campos, which is also in Palencia and also publishes in
+BDNS). `scripts/build-gal.js` therefore walks the Junta de Castilla y León's official
+municipality→GAL lookup once per municipality and writes `data/gal.json`, keyed by INE
+code, with each GAL's phone, email, web and address. The chat reads it through
+`src/gal.js` and names the GAL for the visitor's municipality (a pedanía resolves through
+its parent). Re-run the script when the programme period changes.
+
+Coverage is **Castilla y León only**. For any other comunidad the chat is told it has no
+GAL data and must not guess, because the model will confidently name a plausible but wrong
+one. Adding a region means adding a fetcher to `build-gal.js` that fills the same
+`municipios` map and listing the comunidad in `ccaa`. Municipalities inside no GAL (e.g.
+Palencia capital) are recorded as empty, and the chat tells those visitors LEADER does not
+apply to them.
+
+Two caveats worth knowing. The rows typed *Concesión directa - instrumental* are the
+regional government handing a GAL its LEADER budget, not something anyone applies to;
+they are skipped like any other direct award, but they do name which GAL runs which
+comarca. And `levelFromNivel1` files `OTROS` as `autonomico`, which is wrong for a GAL
+(it runs one comarca) — harmless today, because territory comes from the NUTS codes and
+nothing displays `granting_level`, and not worth a fragile name-matching fix: several
+real GALs (`PROYNERSO`, `ADISAC LA VOZ`, `DUERO ESGUEVA`) have no identifying word in
+their name at all.
 
 Extraction model is `CONVOCA_MODEL` (default `claude-opus-5`). At ~910/month that is
 roughly $110/month; `claude-haiku-4-5` is about a fifth of that.

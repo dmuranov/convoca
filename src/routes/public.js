@@ -11,6 +11,7 @@ import { anthropic, CHAT_MODEL } from '../llm.js';
 import { MUNICIPIOS, PEDANIAS, findMunicipio, fold } from '../municipios.js';
 import { NATIONWIDE, INE_PROVINCES, CCAA } from '../ingest/regions.js';
 import { notifyOperator } from '../notify.js';
+import { galContext } from '../gal.js';
 
 export const publicRouter = Router();
 
@@ -127,6 +128,18 @@ publicRouter.get('/api/licitaciones', (req, res) => {
   res.json({ licitaciones: rows, tipos, ccaas, stats: { open: rows.length, updated: last ? last.slice(0, 10) : null } });
 });
 
+const MESES_ES = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio',
+  'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
+// String-split rather than `new Date()`: a deadline is a calendar date, not an instant, and
+// parsing it as UTC-midnight then formatting in server-local time can shift it a day either
+// way. This just relabels the same YYYY-MM-DD the model is forbidden from doing math on.
+function formatFechaEs(iso) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso);
+  if (!m) return iso;
+  const [, y, mo, d] = m;
+  return `${parseInt(d, 10)} de ${MESES_ES[parseInt(mo, 10) - 1]} de ${y}`;
+}
+
 function chatContext(place) {
   // Only published grants; computed deadlines carry the estimated marker.
   // Territory filtering happens in SQL, not in the model. Shipping the whole open set and
@@ -168,8 +181,8 @@ function chatContext(place) {
     `  Beneficiarios: ${g.entity_types || '[]'} | Financia: ${g.funds_what || '[]'} | Ámbito: ${g.territory_scope || 'n/d'}\n` +
     `  Plazo: ${g.deadline
       ? (g.deadline_estimated
-        ? `hasta ${g.deadline}* (fecha estimada: puede variar según festivos locales y el cómputo de días hábiles; confírmala en las bases oficiales)`
-        : `hasta ${g.deadline}`)
+        ? `hasta ${formatFechaEs(g.deadline)}* (fecha estimada: puede variar según festivos locales y el cómputo de días hábiles; confírmala en las bases oficiales)`
+        : `hasta ${formatFechaEs(g.deadline)}`)
       : (g.is_rolling ? 'abierto de forma continuada' : 'pendiente de confirmar — consúltanos')}\n` +
     `  Más info: ${g.source_url || 'n/d'}`).join('\n\n');
 }
@@ -195,11 +208,13 @@ function resolvePlace(raw) {
 const CHAT_SYSTEM = `Eres el asistente público de Convoca (plazoabierto.es), un servicio que ayuda a pueblos pequeños y a sus entidades locales (ayuntamientos, juntas vecinales, asociaciones, clubes, AMPAs) a no perder subvenciones.
 
 Reglas estrictas:
-- Responde SOLO sobre financiación/subvenciones para entidades locales rurales y sobre cómo funciona Convoca. Cualquier otro tema: redirige amablemente.
+- Responde SOLO sobre financiación/subvenciones para el medio rural (entidades locales, y también vecinos que quieren montar o ampliar un negocio en el pueblo: autónomos, pequeñas empresas agroalimentarias, etc.) y sobre cómo funciona Convoca. Cualquier otro tema: redirige amablemente.
+- Si alguien pregunta por montar o ampliar un negocio en el pueblo, la vía habitual son las ayudas LEADER que gestiona el Grupo de Acción Local (GAL) de su comarca. Solo cita convocatorias concretas del listado. Si tras el listado hay un bloque "GAL LEADER DE LA ZONA", úsalo: nombra ese GAL con sus datos de contacto tal cual vienen, y dile que conviene contactarles antes de gastar, porque estas ayudas suelen exigir pedirlas antes de comprar o empezar obras. Sigue exactamente lo que diga ese bloque: si dice que no tenemos el dato o que no hay GAL, no nombres ninguno. Nunca deduzcas ni recuerdes de memoria qué GAL le corresponde a un pueblo, ni sus plazos: los límites de cada GAL no siguen las provincias y te equivocarías.
 - Solo puedes citar las convocatorias del listado CONVOCATORIAS ABIERTAS que se te proporciona. Si ninguna encaja, dilo claramente y sugiere dejar el contacto — jamás inventes una convocatoria.
 - El listado que recibes YA está filtrado por el territorio del usuario cuando sabemos de dónde es: todo lo que aparece le sirve. Si el listado viene marcado como SIN UBICACIÓN, solo contiene ayudas de toda España — pregúntale de qué pueblo o provincia es antes de recomendarle nada territorial, y dile que puede escribirlo arriba en "¿De dónde eres?" para ver también lo de su comunidad, su diputación y su ayuntamiento.
 - PROHIBIDO calcular, estimar o deducir plazos o fechas. Solo puedes repetir literalmente el campo "Plazo" del listado. Si dice "pendiente de confirmar", di exactamente eso. Si la fecha lleva asterisco (*), repite siempre también el aviso de fecha estimada que la acompaña.
 - Sé breve (2-6 frases), castellano llano, tono cercano de bar de pueblo pero profesional. Sin listas largas: la mejor opción u opciones (máx. 3).
+- Texto plano, sin markdown: nada de asteriscos para negrita, guiones de lista ni encabezados — el chat no los interpreta y se ven tal cual. El asterisco pegado a una fecha estimada es la única excepción: fórmalo tal y como viene en el campo "Plazo".
 - No pidas ni almacenes datos personales. Para seguimiento, remite al correo hola@plazoabierto.es.`;
 
 // ---- contact form ----
@@ -289,7 +304,7 @@ publicRouter.post('/api/chat', async (req, res) => {
         // Only the instructions are byte-identical across visitors, so only they are worth
         // caching. The listing below varies per territory and would never hit.
         { type: 'text', text: CHAT_SYSTEM, cache_control: { type: 'ephemeral', ttl: '1h' } },
-        { type: 'text', text: `${header}\n\n${listing || '(ninguna publicada ahora mismo)'}` },
+        { type: 'text', text: [`${header}\n\n${listing || '(ninguna publicada ahora mismo)'}`, galContext(place)].filter(Boolean).join('\n\n') },
       ],
       messages: [...past, { role: 'user', content: message }],
     });
