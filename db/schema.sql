@@ -258,6 +258,12 @@ CREATE TABLE IF NOT EXISTS licitacion_row (
 );
 CREATE INDEX IF NOT EXISTS idx_licitacion_estado ON licitacion_row(estado);
 CREATE INDEX IF NOT EXISTS idx_licitacion_published ON licitacion_row(published);
+-- /api/licitaciones and /api/grants read MAX(created_at) on every request for the
+-- "updated" stamp. Without an index that is a full table scan, and licitacion_row rows
+-- carry the parsed pliego text (raw_text, often tens of KB), so the scan walked every
+-- overflow page: the public tender list took ~68s to answer (2026-10-07).
+CREATE INDEX IF NOT EXISTS idx_licitacion_created ON licitacion_row(created_at);
+CREATE INDEX IF NOT EXISTS idx_grant_created ON grant_row(created_at);
 
 -- Public contact form. Deliberately NOT the `request` table: that one models a known
 -- pilot village asking for something (municipality_id NOT NULL, immutable raw_text) and
