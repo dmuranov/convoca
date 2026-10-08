@@ -24,7 +24,7 @@ for (const descripcion of TERMS) {
   for (let page = 0, total = 1; page < total; page++) {
     const j = await bdnsGet('/convocatorias/busqueda', {
       page: String(page), pageSize: '500', descripcion,
-      fechaDesde: ddmmyyyy(new Date(FROM)), fechaHasta: ddmmyyyy(new Date()),
+      fechaDesde: ddmmyyyy(FROM), fechaHasta: ddmmyyyy(today),
     });
     total = j.totalPages ?? 1;
     for (const row of j.content || []) found.set(row.numeroConvocatoria, row);
