@@ -90,7 +90,12 @@ export function selectFor({ ccaa = null } = {}, campaign, cands, posted = new Se
       .filter(i => !ccaa || i.ccaa === ccaa)
       .filter(i => !posted.has(`${i.kind}:${i.id}`))
       .sort(campaign === 'new' ? byAmountDesc : bySoonest);
-    res[s] = { items: pool.slice(0, limit), more: Math.max(0, pool.length - limit) };
+    // Variety first: one item per granting body, then fill any free slots in order. One body often
+    // registers a batch of near-identical calls (seen: four Badajoz hunting grants in five slots).
+    const seen = new Set(), first = [], rest = [];
+    for (const i of pool) (seen.has(i.org) ? rest : (seen.add(i.org), first)).push(i);
+    const picked = [...first, ...rest].slice(0, limit).sort(campaign === 'new' ? byAmountDesc : bySoonest);
+    res[s] = { items: picked, more: Math.max(0, pool.length - picked.length) };
   }
   return res;
 }

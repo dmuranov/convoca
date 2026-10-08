@@ -49,6 +49,15 @@ test('new: last 26 h only, split into subvenciones / negocios / licitaciones, ma
   assert.ok(sel.licitaciones.items.length >= 1);
 });
 
+test('variety: one item per granting body before repeating one', () => {
+  const cands = { subvenciones: [
+    ...[9, 8, 7, 6].map(a => ({ kind: 'grant', id: 'b' + a, org: 'BADAJOZ', amount: a * 1000 })),
+    { kind: 'grant', id: 'x', org: 'CÁCERES', amount: 100 }, { kind: 'grant', id: 'y', org: 'SORIA', amount: 50 },
+  ], negocios: [], licitaciones: [] };
+  const ids = C.selectFor({}, 'new', cands).subvenciones.items.map(i => i.id);
+  assert.deepEqual(ids, ['b9', 'b8', 'b7', 'x', 'y']);
+});
+
 test('a regional channel only gets its comunidad; posted items never come back', () => {
   const nav = grant({ region: 'Navarra', amount: 123456 });
   const cands = C.candidates('new', NOW);
