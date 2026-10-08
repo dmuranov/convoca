@@ -54,6 +54,10 @@ export function parseEndDate(text) {
   return iso.at(-1) || null;
 }
 
+// BDNS sometimes says so in words instead of a date: "Periodo de entrega de solicitudes
+// cerrado el dia ." with abierto=false. Without a date this is the only closed signal.
+export const saysClosed = (detail) => !detail.abierto && /\bcerrad[oa]\b/i.test(detail.textFin || '');
+
 // The call's end date from BDNS alone, without computing relative terms: the official
 // field first, then a date written in textFin.
 export const endDateFromDetail = (detail) =>
@@ -184,7 +188,7 @@ export async function prepareEnrichment(grantId, bdnsRef, { detail: pre } = {}) 
   // the flag goes stale (see parseEndDate). The nightly sweep in server.js closes past-deadline
   // rows the same way, so this only makes a late-discovered closed call land CLOSED at once.
   const status = deadline ? (deadline >= today ? 'OPEN' : 'CLOSED')
-    : detail.abierto ? 'OPEN' : 'ANNOUNCED';
+    : saysClosed(detail) ? 'CLOSED' : detail.abierto ? 'OPEN' : 'ANNOUNCED';
   // A grant can arrive already past its deadline (late discovery) - stamp closed_at now
   // so the archive sweep in server.js still picks it up 24h later instead of never.
   const closedAt = status === 'CLOSED' ? new Date().toISOString() : null;

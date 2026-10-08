@@ -14,7 +14,7 @@
 import 'dotenv/config';
 import { db, uuid } from '../db.js';
 import { bdnsGet, ddmmyyyy, alert } from './bdns.js';
-import { prepareEnrichment, enrichBatch, endDateFromDetail } from './enrich.js';
+import { prepareEnrichment, enrichBatch, endDateFromDetail, saysClosed } from './enrich.js';
 
 const LOOKBACK_DAYS = Number(process.env.POLL_LOOKBACK_DAYS || 7);
 const PAGE_SIZE = 200;
@@ -77,6 +77,7 @@ export function screen(detail, today = new Date().toISOString().slice(0, 10)) {
   // A known end date wins over BDNS's `abierto` flag, which goes stale (see parseEndDate).
   const fin = endDateFromDetail(detail);
   if (fin && fin < today) return `plazo cerrado (${fin})`;
+  if (!fin && saysClosed(detail)) return 'plazo cerrado (según BDNS)';
   return null;
 }
 

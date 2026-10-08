@@ -8,7 +8,7 @@
 import 'dotenv/config';
 import { db } from '../src/db.js';
 import { bdnsGet } from '../src/ingest/bdns.js';
-import { endDateFromDetail } from '../src/ingest/enrich.js';
+import { endDateFromDetail, saysClosed } from '../src/ingest/enrich.js';
 import { pingIndexNow } from '../src/indexnow.js';
 import { grantPath, BASE_URL } from '../src/seoUtils.js';
 
@@ -22,12 +22,19 @@ console.log(`${rows.length} open/announced grants without an end date`);
 
 const setDate = db.prepare(`UPDATE grant_row SET deadline_date = ?, deadline_source = 'api', deadline_confirmed = 1,
   status = ?, closed_at = CASE WHEN ? = 'CLOSED' THEN ? ELSE closed_at END WHERE id = ?`);
+const closeNoDate = db.prepare(`UPDATE grant_row SET status = 'CLOSED', closed_at = ? WHERE id = ?`);
 let dated = 0, closed = 0, failed = 0;
 const ping = [];
 for (const r of rows) {
   try {
-    const end = endDateFromDetail(await bdnsGet('/convocatorias', { numConv: r.bdns_ref }));
-    if (end) {
+    const detail = await bdnsGet('/convocatorias', { numConv: r.bdns_ref });
+    const end = endDateFromDetail(detail);
+    if (!end && saysClosed(detail)) {
+      closed++;
+      console.log(`  ${r.bdns_ref} no date, BDNS says closed ${r.status}->CLOSED${r.published ? ' (published)' : ''}`);
+      if (!DRY) closeNoDate.run(new Date().toISOString(), r.id);
+      if (r.published) ping.push(BASE_URL + grantPath(r));
+    } else if (end) {
       const status = end >= today ? (r.status === 'ANNOUNCED' && !r.published ? 'ANNOUNCED' : 'OPEN') : 'CLOSED';
       dated++; if (status === 'CLOSED') closed++;
       console.log(`  ${r.bdns_ref} ${end} ${r.status}->${status}${r.published ? ' (published)' : ''}`);
@@ -38,5 +45,5 @@ for (const r of rows) {
   await sleep(250);
 }
 if (!DRY && ping.length) await pingIndexNow(ping);
-console.log(`${DRY ? '[dry run] ' : ''}done: ${dated} given an end date, ${closed} of them already closed (${ping.length} were published), ${failed} failed`);
+console.log(`${DRY ? '[dry run] ' : ''}done: ${dated} given an end date, ${closed} closed (${ping.length} were published), ${failed} failed`);
 process.exit(0);
