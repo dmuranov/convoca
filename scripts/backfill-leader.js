@@ -12,6 +12,7 @@ import 'dotenv/config';
 import { db } from '../src/db.js';
 import { bdnsGet, ddmmyyyy } from '../src/ingest/bdns.js';
 import { screen, ingestRows } from '../src/ingest/poll.js';
+import { endDateFromDetail } from '../src/ingest/enrich.js';
 
 const DRY = process.argv.includes('--dry-run');
 const FROM = process.env.LEADER_FROM || '2023-01-01';   // start of the 2023-2027 programme
@@ -43,7 +44,8 @@ for (const [ref, row] of found) {
   if (screen(detail, today)) continue;                        // closed or nothing to apply to
   // Stricter than the daily poll: an old call with no end date in BDNS is almost always
   // long closed (Extremadura 2023 rounds, "DESIERTA"...). Only provably open ones are worth paying for.
-  if (!detail.abierto && !((detail.fechaFinSolicitud || '').slice(0, 10) >= today)) continue;
+  const end = endDateFromDetail(detail);
+  if (end ? end < today : !detail.abierto) continue;
   keep.set(ref, row);
   console.log(`  ${ref} ${row.fechaRecepcion} ${prior ? '(was skipped: ' + prior.skip_reason + ')' : '(new)'} | ${(row.nivel2 || '').slice(0, 40)} | ${(row.descripcion || '').slice(0, 70)}`);
 }

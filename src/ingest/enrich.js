@@ -22,6 +22,43 @@ const NUM_WORDS = {
   un: 1, uno: 1, dos: 2, tres: 3, seis: 6,
 };
 
+const MONTHS = {
+  enero: 1, febrero: 2, marzo: 3, abril: 4, mayo: 5, junio: 6, julio: 7, agosto: 8,
+  septiembre: 9, setiembre: 9, octubre: 10, noviembre: 11, diciembre: 12,
+};
+// Absolute end date written out in BDNS textFin ("Hasta el 31 de diciembre de 2027",
+// "HASTA EL DÍA 31/12/2027"). BDNS often leaves fechaFinSolicitud empty and puts the date
+// here instead; without reading it such a call had no deadline and stayed OPEN for as long
+// as BDNS's `abierto` flag said so - and that flag goes stale (2026-10-08: a Canarias call
+// closed in Sep 2024 and a CODINSE call closed Dec 2024 were both still flagged open).
+// textFin is the end-of-period field, so the latest date it names is the end. Returns ISO or null.
+export function parseEndDate(text) {
+  if (!text) return null;
+  const t = String(text).toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+  // "Diez días hábiles desde la publicación del Real Decreto 565/2026, de 8 de julio de 2026":
+  // with a relative period the dates name what it counts from, not the end. Then only a
+  // date after an explicit end marker ("hasta", "como máximo", "finaliza") counts.
+  const scope = /\b(\d{1,3}|[a-z]+) (dias|mes|meses)\b/.test(t)
+    ? (/\b(hasta|como maximo|finaliza\w*|termina\w*)\b(.*)$/.exec(t)?.[2] ?? '')
+    : t;
+  const found = [];
+  for (const m of scope.matchAll(/\b(\d{1,2}) de ([a-z]+)(?: de(?:l)?)? (\d{4})\b/g)) {
+    if (MONTHS[m[2]]) found.push([Number(m[3]), MONTHS[m[2]], Number(m[1])]);
+  }
+  for (const m of scope.matchAll(/\b(\d{1,2})[/.-](\d{1,2})[/.-](\d{4})\b/g)) found.push([Number(m[3]), Number(m[2]), Number(m[1])]);
+  for (const m of scope.matchAll(/\b(\d{4})-(\d{2})-(\d{2})\b/g)) found.push([Number(m[1]), Number(m[2]), Number(m[3])]);
+  const iso = found
+    .filter(([y, mo, d]) => y >= 2000 && y <= 2100 && mo >= 1 && mo <= 12 && d >= 1 && d <= 31)
+    .map(([y, mo, d]) => `${y}-${String(mo).padStart(2, '0')}-${String(d).padStart(2, '0')}`)
+    .sort();
+  return iso.at(-1) || null;
+}
+
+// The call's end date from BDNS alone, without computing relative terms: the official
+// field first, then a date written in textFin.
+export const endDateFromDetail = (detail) =>
+  detail.fechaFinSolicitud?.slice(0, 10) || parseEndDate(detail.textFin);
+
 // Deterministic parse of a relative plazo out of BDNS textFin / bases text.
 export function parsePlazoTerm(text) {
   if (!text) return null;
@@ -129,8 +166,10 @@ export async function prepareEnrichment(grantId, bdnsRef, { detail: pre } = {}) 
 
   // -- deadline (deterministic only) --
   let deadline = null, source = null, confirmed = 0;
-  if (detail.fechaFinSolicitud) {
-    deadline = detail.fechaFinSolicitud.slice(0, 10);
+  const literalEnd = endDateFromDetail(detail);
+  if (literalEnd) {
+    // The official field, or a literal date in BDNS's own textFin - neither is an estimate.
+    deadline = literalEnd;
     source = 'api'; confirmed = 1;
   } else {
     const base = (detail.fechaInicioSolicitud || detail.fechaRecepcion || grant.open_date || '').slice(0, 10);
@@ -141,8 +180,11 @@ export async function prepareEnrichment(grantId, bdnsRef, { detail: pre } = {}) 
     }
   }
   const today = new Date().toISOString().slice(0, 10);
-  const status = detail.abierto || (deadline && deadline >= today) ? 'OPEN'
-    : (deadline && deadline < today) ? 'CLOSED' : 'ANNOUNCED';
+  // A known end date decides; BDNS's `abierto` flag only counts when there is none, because
+  // the flag goes stale (see parseEndDate). The nightly sweep in server.js closes past-deadline
+  // rows the same way, so this only makes a late-discovered closed call land CLOSED at once.
+  const status = deadline ? (deadline >= today ? 'OPEN' : 'CLOSED')
+    : detail.abierto ? 'OPEN' : 'ANNOUNCED';
   // A grant can arrive already past its deadline (late discovery) - stamp closed_at now
   // so the archive sweep in server.js still picks it up 24h later instead of never.
   const closedAt = status === 'CLOSED' ? new Date().toISOString() : null;

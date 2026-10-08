@@ -14,7 +14,7 @@
 import 'dotenv/config';
 import { db, uuid } from '../db.js';
 import { bdnsGet, ddmmyyyy, alert } from './bdns.js';
-import { prepareEnrichment, enrichBatch } from './enrich.js';
+import { prepareEnrichment, enrichBatch, endDateFromDetail } from './enrich.js';
 
 const LOOKBACK_DAYS = Number(process.env.POLL_LOOKBACK_DAYS || 7);
 const PAGE_SIZE = 200;
@@ -74,8 +74,9 @@ export function screen(detail, today = new Date().toISOString().slice(0, 10)) {
   // Nobody can apply to a closed call, so never pay to extract one. Barely matters on the
   // daily poll; on a long backfill it is the difference between enriching everything BDNS
   // published in a year and enriching only what is still live.
-  const fin = detail.fechaFinSolicitud?.slice(0, 10);
-  if (fin && fin < today && !detail.abierto) return `plazo cerrado (${fin})`;
+  // A known end date wins over BDNS's `abierto` flag, which goes stale (see parseEndDate).
+  const fin = endDateFromDetail(detail);
+  if (fin && fin < today) return `plazo cerrado (${fin})`;
   return null;
 }
 
