@@ -326,3 +326,27 @@ CREATE TABLE IF NOT EXISTS alert_signup_attempt (
   count  INTEGER NOT NULL DEFAULT 0,
   PRIMARY KEY (ip, hour)
 );
+
+-- ---- Social channels (Telegram, Bluesky) - src/social/ ----
+-- Everything ever posted to a channel, per campaign: the dedup guarantee (an item goes out at
+-- most once as "nueva" and once as "cierra pronto" per channel).
+CREATE TABLE IF NOT EXISTS social_post (
+  target     TEXT NOT NULL,                  -- e.g. telegram:@plazoabierto, bluesky:plazoabierto.bsky.social
+  campaign   TEXT NOT NULL CHECK (campaign IN ('new','closing')),
+  item_kind  TEXT NOT NULL CHECK (item_kind IN ('grant','licitacion')),
+  item_id    TEXT NOT NULL,
+  posted_at  TEXT NOT NULL DEFAULT (datetime('now')),
+  PRIMARY KEY (target, campaign, item_kind, item_id)
+);
+-- One row per channel per run, for the admin panel (what went out, what failed).
+CREATE TABLE IF NOT EXISTS social_run (
+  id        TEXT PRIMARY KEY,
+  run_at    TEXT NOT NULL DEFAULT (datetime('now')),
+  target    TEXT NOT NULL,
+  campaign  TEXT NOT NULL,
+  posted    INTEGER NOT NULL DEFAULT 0,      -- items posted
+  messages  INTEGER NOT NULL DEFAULT 0,
+  dry_run   INTEGER NOT NULL DEFAULT 0,
+  error     TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_social_run_at ON social_run(run_at);

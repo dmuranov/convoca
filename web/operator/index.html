@@ -47,6 +47,14 @@
   </div>
 
   <details class="card">
+    <summary>Canales: Telegram, Bluesky y WhatsApp</summary>
+    <div id="social" class="muted">cargando…</div>
+    <h4 style="margin-top:1rem">Cierran en los próximos 7 días (para el canal de WhatsApp)</h4>
+    <textarea id="wa-text" readonly rows="12" style="width:100%;font-family:inherit;font-size:.85rem"></textarea>
+    <p><button class="btn small" type="button" id="wa-copy">Copiar texto</button> <span id="wa-copied" class="muted"></span></p>
+  </details>
+
+  <details class="card">
     <summary>Crecimiento: avisos por correo</summary>
     <div id="growth" class="muted">cargando…</div>
   </details>
@@ -127,6 +135,23 @@ async function loadContact() {
       </select></p>`;
   }).join('') || '<p class="muted">Sin mensajes.</p>';
 }
+
+async function loadSocial() {
+  const s = await j('/api/op/social');
+  const CAMP = { new: 'Nuevas hoy', closing: 'Cierran pronto' };
+  $('social').innerHTML =
+    `<p>Modo: <strong>${s.dryRun ? 'prueba (no publica nada)' : 'real'}</strong> ·
+       Canales activos: ${s.targets.length ? s.targets.map(t => t.key + (t.ccaa ? ` (${t.ccaa})` : '')).join(', ') : 'ninguno'}</p>
+     <table><tr><th>Cuándo</th><th>Canal</th><th>Campaña</th><th>Publicadas</th><th>Error</th></tr>
+       ${s.runs.map(r => `<tr><td>${r.run_at}</td><td>${r.target}${r.dry_run ? ' (prueba)' : ''}</td><td>${CAMP[r.campaign] || r.campaign}</td>
+         <td>${r.posted}</td><td style="color:var(--warn)">${r.error || ''}</td></tr>`).join('') || '<tr><td colspan="5">Aún no ha publicado nada</td></tr>'}</table>`;
+  $('wa-text').value = s.whatsapp || 'No hay convocatorias que cierren en los próximos 7 días.';
+}
+$('wa-copy').addEventListener('click', async () => {
+  try { await navigator.clipboard.writeText($('wa-text').value); $('wa-copied').textContent = 'Copiado'; }
+  catch { $('wa-text').select(); document.execCommand('copy'); $('wa-copied').textContent = 'Copiado'; }
+  setTimeout(() => { $('wa-copied').textContent = ''; }, 2000);
+});
 
 async function loadGrowth() {
   const g = await j('/api/op/growth');
@@ -396,7 +421,7 @@ $('pollnow').addEventListener('click', async () => {
 $('pendingonly').addEventListener('change', loadGrants);
 $('out').addEventListener('click', async () => { await fetch('/api/logout', { method: 'POST' }); location.href = '/'; });
 
-loadAlerts(); loadContact(); loadGrowth(); loadMetrics(); loadGrants(); loadLicitaciones(); loadRequests(); loadInvites(); loadNotifications();
+loadAlerts(); loadContact(); loadGrowth(); loadSocial(); loadMetrics(); loadGrants(); loadLicitaciones(); loadRequests(); loadInvites(); loadNotifications();
 </script>
 </body>
 </html>

@@ -9,6 +9,9 @@ import { sendWhatsAppTemplate } from '../whatsapp.js';
 import { alert } from '../ingest/bdns.js';
 import { pingIndexNow } from '../indexnow.js';
 import { grantPath, licitacionPath, BASE_URL } from '../seoUtils.js';
+import { isDryRun } from '../dryRun.js';
+import { buildTargets } from '../social/run.js';
+import { whatsappClosingText } from '../social/content.js';
 
 export const operatorRouter = Router();
 operatorRouter.use('/api/op', requireAuth('operator'));
@@ -388,6 +391,17 @@ operatorRouter.post('/api/op/poll', (req, res) => {
 });
 
 // ---- metrics (§7) ----
+// Social channels (src/social/): which are on, what the last runs did, and the weekly
+// closing-soon text for pasting into the WhatsApp Channel by hand.
+operatorRouter.get('/api/op/social', (req, res) => {
+  res.json({
+    dryRun: isDryRun(),
+    targets: buildTargets().map(t => ({ key: t.key, platform: t.platform, ccaa: t.ccaa })),
+    runs: db.prepare('SELECT run_at, target, campaign, posted, messages, dry_run, error FROM social_run ORDER BY run_at DESC LIMIT 20').all(),
+    whatsapp: whatsappClosingText(),
+  });
+});
+
 // Growth: email-alert signups (src/routes/alerts.js). Counts only - no addresses leave the DB.
 operatorRouter.get('/api/op/growth', (req, res) => {
   const q = (sql) => db.prepare(sql).all();

@@ -22,6 +22,7 @@ import { pollLicitacionesOnce, drainStrandedLicitaciones } from './src/ingest/po
 import { alert } from './src/ingest/bdns.js';
 import { alertsRouter, alertsEnabled, pruneAlertData } from './src/routes/alerts.js';
 import { runDigests } from './src/alerts/digest.js';
+import { runSocial } from './src/social/run.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -157,6 +158,16 @@ if (process.env.NODE_ENV === 'production') {
   cron.schedule('0 8 * * 1', async () => {
     if (!alertsEnabled()) return;
     try { await runDigests('weekly'); } catch (e) { alert('alerts', `weekly digests: ${e.message}`); }
+  }, { timezone: 'Europe/Madrid' });
+
+  // ---- social channels (src/social/run.js) ----
+  // "Nuevas hoy" in the evening, after the day's publishing; "Cierran en los próximos 7 días"
+  // on Monday morning. Each channel has its own on/off flag; with none on, these do nothing.
+  cron.schedule('0 19 * * *', async () => {
+    try { await runSocial('new'); } catch (e) { alert('social', `new: ${e.message}`); }
+  }, { timezone: 'Europe/Madrid' });
+  cron.schedule('0 9 * * 1', async () => {
+    try { await runSocial('closing'); } catch (e) { alert('social', `closing: ${e.message}`); }
   }, { timezone: 'Europe/Madrid' });
 }
 

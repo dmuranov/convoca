@@ -8,21 +8,17 @@
 // OS temp dir) as .html, so confirmation links can be clicked while testing. Outside
 // production, dry run is the default; production sends only when DRY_RUN is unset or 0.
 import { mkdirSync, writeFileSync } from 'node:fs';
-import os from 'node:os';
+import { isDryRun, outboxDir } from '../dryRun.js';
 import path from 'node:path';
 
-export function isDryRun() {
-  const v = process.env.DRY_RUN;
-  if (v != null && v !== '') return v === '1' || v.toLowerCase() === 'true';
-  return process.env.NODE_ENV !== 'production';
-}
+export { isDryRun } from '../dryRun.js';
 
 export const sender = () => ({
   email: process.env.MAIL_FROM_EMAIL || 'alertas@plazoabierto.es',
   name: process.env.MAIL_FROM_NAME || 'Plazo Abierto',
 });
 
-const OUTBOX = () => process.env.MAIL_OUTBOX_DIR || path.join(os.tmpdir(), 'convoca-outbox');
+const OUTBOX = () => outboxDir('mail');
 
 const dryRunMailer = {
   name: 'dry-run',
