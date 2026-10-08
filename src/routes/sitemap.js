@@ -4,6 +4,7 @@
 // that would actually 404 - it re-checks the exact same MIN_LIVE-gated queries the hub
 // routes use (src/seoQueries.js), not a cached/stale count.
 import { Router } from 'express';
+import { INDEXABLE_SQL, indexCutoff } from '../grantSeo.js';
 import { db } from '../db.js';
 import { BASE_URL, esc, grantPath, licitacionPath, slugify, CCAA_SLUGS, PROVINCE_CCAA, CATEGORY_SLUGS, BENEFICIARIO_SLUGS } from '../seoUtils.js';
 import { MIN_LIVE, grantsByCcaa, grantsByProvince, grantsByCategory,
@@ -33,16 +34,17 @@ sitemapRouter.get('/sitemap_index.xml', (req, res) => {
   res.set('Content-Type', 'application/xml; charset=utf-8').send(body);
 });
 
-// Every published grant (§5: closed convocatorias stay indexable, so no status filter
-// here). Prioritised per §6 - "small crawl budget on a new domain, prioritise what closes
+// Every indexable published grant: open ones, and closed ones up to CLOSED_INDEX_DAYS past
+// their deadline (src/grantSeo.js - direct awards and long-closed calls are noindex).
+// Prioritised per §6 - "small crawl budget on a new domain, prioritise what closes
 // soon" - open-and-closing-soonest first, closed ones last since they're least likely to
 // earn a fresh crawl and least urgent if they don't get one immediately.
 sitemapRouter.get('/sitemap-grants.xml', (req, res) => {
   const rows = db.prepare(`
     SELECT bdns_ref, plain_title, title, status, deadline_date, created_at
-    FROM grant_row WHERE published = 1
+    FROM grant_row WHERE published = 1 AND ${INDEXABLE_SQL}
     ORDER BY status = 'CLOSED', deadline_date IS NULL, deadline_date
-    LIMIT ?`).all(MAX_PER_SITEMAP);
+    LIMIT @limit`).all({ cutoff: indexCutoff(), limit: MAX_PER_SITEMAP });
 
   const entries = rows.map(g => {
     const priority = g.status === 'CLOSED' ? 0.3 : 0.7;

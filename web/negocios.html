@@ -40,7 +40,8 @@
     <p class="sub">Reunimos las subvenciones abiertas a las que puede presentarse una empresa o un
     autónomo, en toda España. Y si tu negocio está en un pueblo, te decimos qué Grupo de Acción
     Local reparte allí las ayudas LEADER, que son las que más se escapan.</p>
-    <a class="btn" href="#gal">Busca tu Grupo de Acción Local</a>
+    <a class="btn" href="#asistente">Pregunta con tus palabras</a>
+    <a class="btn ghost" href="#gal" style="margin-left:.5rem">Busca tu Grupo de Acción Local</a>
     <a class="btn ghost" href="#abiertas" style="margin-left:.5rem">Ver ayudas abiertas</a>
 
     <div class="stats">
@@ -80,6 +81,21 @@
     <div class="alerta-box" data-alerta data-section="negocios" data-filters="{}" hidden></div>
     <p class="muted" id="empty" hidden style="text-align:center">
       Ahora mismo no hay ayudas para negocios publicadas en el índice. Vuelve a pasarte pronto.</p>
+  </section>
+
+  <section class="card" id="asistente" style="margin-top:2.5rem">
+    <h2>Pregunta al asistente</h2>
+    <p class="muted">Cuéntalo con tus palabras, por ejemplo:
+    <em>«quiero abrir una casa rural en un pueblo de Soria»</em> o
+    <em>«soy autónoma y quiero comprar maquinaria»</em>, y te decimos qué ayudas hay y a quién preguntar.
+    Si arriba has elegido tu pueblo, te contestamos para ese pueblo.</p>
+    <div id="chat">
+      <div id="chat-log"></div>
+      <form id="chat-form">
+        <input id="chat-input" maxlength="1000" placeholder="Escribe tu pregunta…" autocomplete="off">
+        <button class="btn" type="submit">Enviar</button>
+      </form>
+    </div>
   </section>
 
   <section class="card" style="margin-top:2.5rem">
@@ -243,6 +259,40 @@ document.addEventListener('click', (ev) => { if (!ev.target.closest('.place-box'
     render();
   } catch { document.getElementById('empty').hidden = false; }
 })();
+
+// ---- assistant: same /api/chat as the home page; the village picked above goes with it ----
+const chatLog = document.getElementById('chat-log');
+const chatHistory = [];
+function addMsg(role, text) {
+  const d = document.createElement('div');
+  d.className = 'msg ' + (role === 'user' ? 'user' : 'bot');
+  d.textContent = text;
+  chatLog.appendChild(d);
+  chatLog.scrollTop = chatLog.scrollHeight;
+  return d;
+}
+addMsg('bot', 'Hola 👋 Soy el asistente de Plazo Abierto. Cuéntame qué negocio tienes o quieres abrir, y dónde, y te digo qué ayudas hay abiertas y a quién preguntar.');
+document.getElementById('chat-form').addEventListener('submit', async (ev) => {
+  ev.preventDefault();
+  const input = document.getElementById('chat-input');
+  const message = input.value.trim();
+  if (!message) return;
+  input.value = '';
+  addMsg('user', message);
+  chatHistory.push({ role: 'user', content: message });
+  const thinking = addMsg('bot', '…');
+  try {
+    const r = await fetch('/api/chat', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message, history: chatHistory.slice(0, -1), place }),
+    });
+    const j = await r.json();
+    thinking.textContent = j.reply || j.error || 'No he podido responder.';
+    if (j.reply) chatHistory.push({ role: 'assistant', content: j.reply });
+  } catch {
+    thinking.textContent = 'No hay conexión ahora mismo. Inténtalo más tarde.';
+  }
+});
 </script>
 </body>
 </html>

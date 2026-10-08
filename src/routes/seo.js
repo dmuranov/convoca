@@ -10,6 +10,7 @@ import { BASE_URL, BENEFICIARIO_TYPES as TYPES, esc, eur, slugify, grantPath, da
 import { NATIONWIDE } from '../ingest/regions.js';
 import { alertBox, ALERT_ASSETS } from '../seoUtils.js';
 import { isBusinessGrant } from '../negocios.js';
+import { grantSeoTitle, grantSeoDescription, isGrantIndexable } from '../grantSeo.js';
 
 export const seoRouter = Router();
 
@@ -26,10 +27,12 @@ function renderPage(g) {
   const path = grantPath(g);
   const canonical = BASE_URL + path;
   const head = g.plain_title || g.title;
-  const year = (g.deadline_date || g.open_date || new Date().toISOString()).slice(0, 4);
-  const title = `${head} ${year} — plazo, requisitos e importe | Plazo Abierto`;
+  // Says it is a subsidy and who gives it (src/grantSeo.js): titles that read like the event
+  // itself drew searches the page cannot answer.
+  const title = grantSeoTitle(g);
+  const indexable = isGrantIndexable(g);
   const amount = g.amount_max ? `hasta ${eur(g.amount_max)}` : (g.budget_total ? `bolsa de ${eur(g.budget_total)}` : 'según bases');
-  const description = `${head}: ${amount}. ${g.deadline_date ? `Plazo hasta ${g.deadline_date}.` : ''} Resumen en castellano llano, requisitos y cómo pedirla.`.trim();
+  const description = grantSeoDescription(g);
 
   const entityTypes = JSON.parse(g.entity_types || '[]').map(t => TYPES[t] || t).join(', ') || null;
   const quienPuede = entityTypes || g.territory_scope || 'Consulta las bases oficiales';
@@ -39,7 +42,12 @@ function renderPage(g) {
   let checklist = null;
   try { checklist = g.plain_checklist ? JSON.parse(g.plain_checklist) : null; } catch { checklist = null; }
 
-  const closedBanner = g.status === 'CLOSED' ? `
+  const closedBanner = g.status === 'CLOSED' && !g.deadline_date ? `
+    <div class="closed-banner">
+      <strong>No admite solicitudes.</strong> Es una ayuda concedida directamente a una entidad
+      concreta, o una convocatoria que el propio organismo da por cerrada. La dejamos como
+      referencia, pero no se puede pedir.
+    </div>` : g.status === 'CLOSED' ? `
     <div class="closed-banner">
       <strong>Plazo cerrado.</strong> Esta convocatoria ya no acepta solicitudes.
       Se mantiene publicada porque suele repetirse cada año — vuelve a comprobarlo
@@ -127,6 +135,7 @@ function renderPage(g) {
 <title>${esc(title)}</title>
 <meta name="description" content="${esc(description.slice(0, 160))}">
 <link rel="canonical" href="${esc(canonical)}">
+${indexable ? '' : '<meta name="robots" content="noindex, follow">'}
 <link rel="icon" type="image/png" href="/favicon.png">
 <link rel="stylesheet" href="/styles.css">
 ${ALERT_ASSETS}
