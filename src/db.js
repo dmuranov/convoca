@@ -18,7 +18,10 @@ const cols = new Set(db.prepare('PRAGMA table_info(grant_row)').all().map(c => c
 for (const [name, decl] of [['plain_title', 'TEXT'], ['sede_url', 'TEXT'], ['plain_explainer', 'TEXT'],
                             ['region', 'TEXT'], ['skip_reason', 'TEXT'], ['province', 'TEXT'],
                             ['municipality', 'TEXT'], ['plain_checklist', 'TEXT'],
-                            ['closed_at', 'TEXT'], ['archived_at', 'TEXT']]) {
+                            ['closed_at', 'TEXT'], ['archived_at', 'TEXT'],
+                            // BDNS tiposBeneficiarios descriptions (JSON array): the only record of
+                            // whether a call is for businesses (see /api/negocios)
+                            ['beneficiarios_bdns', 'TEXT']]) {
   if (!cols.has(name)) db.exec(`ALTER TABLE grant_row ADD COLUMN ${name} ${decl}`);
 }
 const licCols = new Set(db.prepare('PRAGMA table_info(licitacion_row)').all().map(c => c.name));

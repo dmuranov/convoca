@@ -1,0 +1,243 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ayudas para negocios y LEADER — Plazo Abierto | autónomos, pymes y emprendedores rurales</title>
+<link rel="canonical" href="https://plazoabierto.es/negocios">
+<meta name="description" content="Subvenciones abiertas para autónomos, pymes y negocios rurales, y el Grupo de Acción Local (LEADER) de tu pueblo, en toda España. En español llano, con la fecha clara.">
+<link rel="icon" type="image/png" href="/favicon.png">
+<link rel="stylesheet" href="/styles.css">
+<link rel="stylesheet" href="/styles-licitaciones.css">
+<style>
+  .gal-result { margin-top: 1rem; text-align: left; }
+  .gal-result .gal { border-left: 3px solid var(--accent, #2b6); padding: .4rem .8rem; margin: .6rem 0; }
+  .gal-result .gal strong { display: block; }
+  .gal-result .note { font-size: .85rem; }
+  .tag.leader { background: var(--accent-soft, #e6f4ea); }
+</style>
+</head>
+<body>
+<header class="site">
+  <div class="wrap">
+    <a class="logo" href="/">Plazo<span class="b">Abierto</span></a>
+    <nav>
+      <div class="tabs">
+        <a class="tab" href="/">Subvenciones</a>
+        <a class="tab" href="/licitaciones">Licitaciones</a>
+        <a class="tab on" href="/negocios">Negocios</a>
+      </div>
+    </nav>
+  </div>
+</header>
+
+<section class="hero">
+  <div class="wrap">
+    <span class="pill">Para autónomos, pymes y negocios rurales</span>
+    <h1>Ayudas para abrir o hacer crecer tu negocio</h1>
+    <p class="sub">Reunimos las subvenciones abiertas a las que puede presentarse una empresa o un
+    autónomo, en toda España. Y si tu negocio está en un pueblo, te decimos qué Grupo de Acción
+    Local reparte allí las ayudas LEADER, que son las que más se escapan.</p>
+    <a class="btn" href="#gal">Busca tu Grupo de Acción Local</a>
+    <a class="btn ghost" href="#abiertas" style="margin-left:.5rem">Ver ayudas abiertas</a>
+
+    <div class="stats">
+      <div class="stat"><div class="n" id="st-open">—</div><div class="l">ayudas abiertas para negocios</div></div>
+      <div class="stat"><div class="n" id="st-leader">—</div><div class="l">de ellas, de grupos LEADER</div></div>
+      <div class="stat"><div class="n" id="st-upd">—</div><div class="l">última actualización del índice</div></div>
+    </div>
+  </div>
+</section>
+
+<main class="wrap">
+
+  <section id="gal" class="card" style="margin-top:1rem">
+    <h3>¿Qué es LEADER y por qué te interesa?</h3>
+    <p>LEADER es el dinero europeo para el desarrollo rural. No lo reparte un ministerio: lo
+    reparte un <strong>Grupo de Acción Local (GAL)</strong> de tu comarca. Suele pagar una parte
+    de la inversión para abrir o modernizar un negocio en un pueblo: un bar, un alojamiento rural,
+    un taller, una tienda, una pequeña industria agroalimentaria.</p>
+    <p>Cada grupo abre sus propias convocatorias, a menudo sin que salgan en las noticias. Lo
+    mejor es llamar al grupo de tu zona <em>antes</em> de invertir, porque normalmente no pagan
+    lo que ya está hecho.</p>
+    <div class="region-filter">
+      <label for="place-input">¿En qué pueblo está tu negocio?</label>
+      <span class="place-box">
+        <input id="place-input" type="search" autocomplete="off" placeholder="tu pueblo o pedanía, p. ej. Almonte">
+        <div class="place-menu" id="place-menu" hidden></div>
+      </span>
+    </div>
+    <div class="gal-result" id="gal-result" aria-live="polite"></div>
+  </section>
+
+  <section id="abiertas" style="padding-top:1.5rem">
+    <h2 style="text-align:center">Ayudas abiertas para negocios</h2>
+    <p class="muted" id="place-note" style="text-align:center" hidden></p>
+    <div class="filter-chips" id="filters"></div>
+    <div class="grants-grid" id="grid"></div>
+    <p class="muted" id="empty" hidden style="text-align:center">
+      Ahora mismo no hay ayudas para negocios publicadas en el índice. Vuelve a pasarte pronto.</p>
+  </section>
+
+  <section class="card" style="margin-top:2.5rem">
+    <h3>Cómo elegimos estas ayudas</h3>
+    <p><strong>1 · Vigilamos.</strong> Leemos a diario la Base de Datos Nacional de Subvenciones.</p>
+    <p><strong>2 · Filtramos.</strong> Solo enseñamos aquí las convocatorias en las que la propia
+    administración dice que pueden pedirla empresas, autónomos o personas con actividad económica,
+    y las de los Grupos de Acción Local.</p>
+    <p><strong>3 · Tú decides.</strong> Importes, plazos y requisitos son los de la convocatoria
+    oficial. Confírmalos siempre allí antes de presentarte.</p>
+  </section>
+</main>
+
+<footer class="site">
+  <div class="wrap">
+    <p>Datos de la <a href="https://www.infosubvenciones.es">Base de Datos Nacional de Subvenciones</a>.
+    Grupos de Acción Local: Junta de Castilla y León (2023-2027) y Red PAC (listado nacional 2014-2020).</p>
+    <p>© <span id="yr"></span> Plazo Abierto ·
+    <a href="mailto:hola@plazoabierto.es">hola@plazoabierto.es</a></p>
+  </div>
+</footer>
+
+<script>
+document.getElementById('yr').textContent = new Date().getFullYear();
+const eur = (n) => n == null ? null : Number(n).toLocaleString('es-ES') + ' €';
+// Mirrors grantPath() in src/seoUtils.js.
+const grantPath = (g) => `/subvenciones/${(g.plain_title || g.title || '')
+  .normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
+  .replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 80) || 'convocatoria'}-${g.bdns_ref}/`;
+// BDNS text, model output and GAL contacts are third-party: always escape.
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, c =>
+  ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const safeUrl = (u) => {
+  const s = String(u || '').trim();
+  if (!s) return null;
+  try { return new URL(/^https?:\/\//i.test(s) ? s : 'https://' + s).href; } catch { return null; }
+};
+
+let ALL = [], onlyLeader = false, place = null;
+
+function daysLeft(deadline) {
+  if (!deadline) return null;
+  return Math.ceil((new Date(deadline + 'T23:59:59') - Date.now()) / 86400000);
+}
+
+function render() {
+  const list = ALL
+    .filter(g => !onlyLeader || g.leader)
+    .filter(g => !place || !g.region || g.region === 'Toda España' || g.region === place.ccaa);
+  document.getElementById('empty').hidden = !!list.length;
+  document.getElementById('grid').innerHTML = list.map(g => {
+    const d = daysLeft(g.deadline);
+    const badge = g.is_rolling ? '<span class="badge-days">plazo abierto</span>'
+      : d != null ? `<span class="badge-days ${d <= 5 ? 'soon' : ''}">${d <= 0 ? 'último día' : `quedan ${d} días`}${g.deadline_estimated ? '*' : ''}</span>`
+      : '<span class="badge-days soon">plazo por confirmar</span>';
+    const amount = g.amount_max ? `hasta ${eur(g.amount_max)}` : g.budget_total ? `${eur(g.budget_total)} en total` : 'según bases';
+    return `<article class="grant-card">
+      <div class="org">${esc(g.granting_body || '')} ${badge}</div>
+      <h4><a href="${esc(grantPath(g))}">${esc(g.plain_title || g.title)}</a></h4>
+      <p class="desc">${esc(g.ai_summary || g.funds_what || '')}</p>
+      <div>
+        <span class="chip"><span class="k">Importe</span><span class="v">${esc(amount)}</span></span>
+        ${g.region ? `<span class="chip"><span class="k">Ámbito</span><span class="v">${esc(g.region)}</span></span>` : ''}
+      </div>
+      <div style="margin:.3rem 0 .8rem">${g.leader ? '<span class="tag leader">LEADER · desarrollo rural</span>' : ''}</div>
+      <div class="spacer"></div>
+      <a class="btn block" href="${esc(grantPath(g))}">Ver en sencillo →</a>
+    </article>`;
+  }).join('');
+}
+
+document.getElementById('filters').addEventListener('click', (ev) => {
+  const b = ev.target.closest('button');
+  if (!b) return;
+  onlyLeader = b.dataset.f === 'leader';
+  document.querySelectorAll('#filters button').forEach(x => x.classList.toggle('on', x === b));
+  render();
+});
+
+// ---- GAL finder: same data and honesty rules as the chat (src/gal.js) ---------------------
+const galBox = document.getElementById('gal-result');
+function galCard(g) {
+  const web = safeUrl(g.web);
+  const contact = [
+    g.phone && `Tel. <a href="tel:${esc(g.phone)}">${esc(g.phone)}</a>`,
+    g.email && `<a href="mailto:${esc(g.email)}">${esc(g.email)}</a>`,
+    web && `<a href="${esc(web)}" target="_blank" rel="noopener">${esc(g.web)}</a>`,
+  ].filter(Boolean).join(' · ');
+  return `<div class="gal"><strong>${esc(g.name)}</strong>${contact}
+    ${g.address ? `<div class="muted">${esc(g.address)}</div>` : ''}</div>`;
+}
+const OLD = '<p class="note muted">Este dato viene del listado nacional de grupos del periodo 2014-2020. '
+  + 'La mayoría siguen hoy, pero el nombre o el contacto pueden haber cambiado: confírmalo con el grupo o con la web de tu comunidad autónoma.</p>';
+async function showGal(p) {
+  galBox.innerHTML = '<p class="muted">Buscando…</p>';
+  try {
+    const qs = new URLSearchParams({ name: p.name || '', province: p.province || '', ccaa: p.ccaa || '' });
+    const r = await (await fetch('/api/gal?' + qs)).json();
+    const where = esc(p.label || p.name);
+    const views = {
+      found: () => `<p>El grupo LEADER que cubre <strong>${where}</strong>${r.official ? ` (periodo ${esc(r.period)})` : ''}:</p>`
+        + r.gals.map(galCard).join('') + (r.official ? '' : OLD),
+      candidates: () => `<p>No sabemos con seguridad qué grupo cubre <strong>${where}</strong>. Estos grupos tienen su sede en la provincia de ${esc(p.province)}; pregunta a cualquiera de ellos cuál te corresponde:</p>`
+        + r.gals.map(galCard).join('') + OLD,
+      no_gal: () => `<p><strong>${where}</strong> no está en ninguna zona LEADER (son ayudas para el medio rural). Mira abajo el resto de ayudas para negocios.</p>`,
+      capital: () => `<p><strong>${where}</strong> es capital de provincia y no está en ninguna zona LEADER (son ayudas para el medio rural). Mira abajo el resto de ayudas para negocios.</p>`,
+      need_town: () => '<p>Elige tu pueblo, no solo la provincia: cada comarca tiene su propio grupo.</p>',
+    };
+    galBox.innerHTML = views[r.kind]?.()
+      || `<p>No sabemos qué grupo cubre <strong>${where}</strong>. Pregunta en tu ayuntamiento o en la web de desarrollo rural de tu comunidad autónoma.</p>`;
+  } catch { galBox.innerHTML = '<p class="muted">No hemos podido buscarlo ahora. Inténtalo de nuevo en un momento.</p>'; }
+}
+
+const placeInput = document.getElementById('place-input');
+const placeMenu = document.getElementById('place-menu');
+let placeTimer = null, placeSeq = 0;
+placeInput.addEventListener('input', () => {
+  clearTimeout(placeTimer);
+  const q = placeInput.value.trim();
+  if (q.length < 2) { placeMenu.hidden = true; return; }
+  placeTimer = setTimeout(async () => {
+    const seq = ++placeSeq;
+    try {
+      const r = await (await fetch('/api/municipios?q=' + encodeURIComponent(q))).json();
+      if (seq !== placeSeq) return;
+      const matches = (r.matches || []).filter(m => m.type !== 'provincia');
+      placeMenu.innerHTML = matches.length
+        ? matches.map((m, i) => `<button type="button" data-i="${i}">${esc(m.label)} <span class="muted">${esc(m.hint || m.province || '')}</span></button>`).join('')
+        : '<div class="place-empty">No lo encontramos. Prueba con el nombre de tu municipio.</div>';
+      placeMenu._matches = matches;
+      placeMenu.hidden = false;
+    } catch { placeMenu.hidden = true; }
+  }, 180);
+});
+placeMenu.addEventListener('click', (ev) => {
+  const b = ev.target.closest('button[data-i]');
+  if (!b) return;
+  place = placeMenu._matches[+b.dataset.i];
+  placeInput.value = place.label;
+  placeMenu.hidden = true;
+  const note = document.getElementById('place-note');
+  note.textContent = `Mostrando las ayudas estatales y las de ${place.ccaa}.`;
+  note.hidden = false;
+  showGal(place);
+  render();
+});
+document.addEventListener('click', (ev) => { if (!ev.target.closest('.place-box')) placeMenu.hidden = true; });
+
+(async function load() {
+  try {
+    const r = await (await fetch('/api/negocios')).json();
+    ALL = r.grants || [];
+    document.getElementById('st-open').textContent = r.stats?.open ?? '—';
+    document.getElementById('st-leader').textContent = r.stats?.leader ?? '—';
+    document.getElementById('st-upd').textContent = r.stats?.updated
+      ? new Date(r.stats.updated).toLocaleDateString('es-ES', { day: 'numeric', month: 'short', year: 'numeric' }) : '—';
+    if (r.stats?.leader) document.getElementById('filters').innerHTML =
+      '<button class="on" data-f="">Todas</button><button data-f="leader">Solo LEADER</button>';
+    render();
+  } catch { document.getElementById('empty').hidden = false; }
+})();
+</script>
+</body>
+</html>

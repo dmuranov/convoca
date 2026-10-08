@@ -117,6 +117,7 @@ app.get('/', (req, res) => res.sendFile(web('index.html')));
 app.get('/entrar', (req, res) => res.sendFile(web('login.html')));
 app.get('/registro', (req, res) => res.sendFile(web('registro.html')));
 app.get('/licitaciones', (req, res) => res.sendFile(web('licitaciones.html')));
+app.get('/negocios', (req, res) => res.sendFile(web('negocios.html')));
 app.get('/panel', (req, res) => {
   const u = sessionUser(req);
   if (!u) return res.redirect('/entrar');

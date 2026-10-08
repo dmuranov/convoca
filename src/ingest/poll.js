@@ -157,6 +157,9 @@ async function runPoll() {
   for (const g of fresh) {
     try {
       const detail = await bdnsGet('/convocatorias', { numConv: g.ref });
+      // Who BDNS says can apply — kept for the businesses section (/api/negocios).
+      db.prepare('UPDATE grant_row SET beneficiarios_bdns = ? WHERE id = ?')
+        .run(JSON.stringify((detail.tiposBeneficiarios || []).map(t => t.descripcion).filter(Boolean)), g.id);
       const pilot = isPilotScope(g.row);
       const reason = pilot ? null : screen(detail);
       if (reason) {

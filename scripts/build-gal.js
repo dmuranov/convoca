@@ -174,7 +174,8 @@ const out = {
   municipios: byIne,
 };
 
-const dest = path.join(__dirname, '..', 'data', 'gal.json');
+// The official CyL list; scripts/build-gal-spain.js merges it with the rest of Spain into data/gal.json.
+const dest = path.join(__dirname, '..', 'data', 'gal-cyl.json');
 writeFileSync(dest, JSON.stringify(out));
 console.log(`\nwrote ${gals.size} GALs covering ${looked - empty} of ${looked} municipalities to ${dest}`);
 if (unmatched.length) console.warn(`WARNING: ${unmatched.length} Junta municipalities not in INE dictionary, e.g.`, unmatched.slice(0, 5));

@@ -137,6 +137,7 @@ function renderPage(g) {
       <div class="tabs">
         <a class="tab on" href="/">Subvenciones</a>
         <a class="tab" href="/licitaciones">Licitaciones</a>
+        <a class="tab" href="/negocios">Negocios</a>
       </div>
       <a class="btn ghost" href="/entrar">Entrar</a>
     </nav>

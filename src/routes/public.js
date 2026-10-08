@@ -11,7 +11,7 @@ import { anthropic, CHAT_MODEL } from '../llm.js';
 import { MUNICIPIOS, PEDANIAS, findMunicipio, fold } from '../municipios.js';
 import { NATIONWIDE, INE_PROVINCES, CCAA } from '../ingest/regions.js';
 import { notifyOperator } from '../notify.js';
-import { galContext } from '../gal.js';
+import { galContext, galLookup } from '../gal.js';
 
 export const publicRouter = Router();
 
@@ -126,6 +126,51 @@ publicRouter.get('/api/licitaciones', (req, res) => {
   // more useful text there, just not a well-formed filter axis on its own.
   const ccaas = [...new Set(rows.map(r => r.ccaa).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'es'));
   res.json({ licitaciones: rows, tipos, ccaas, stats: { open: rows.length, updated: last ? last.slice(0, 10) : null } });
+});
+
+// Public "Negocios" directory: open published grants that businesses can apply for.
+// A grant counts when BDNS's own beneficiary types include a business (autónomos and
+// pymes are "personas físicas/jurídicas que desarrollan actividad económica"), or when a
+// LEADER group (GAL/GDR) grants it - those are the rural-business aid most people miss.
+// beneficiarios_bdns is filled by the daily poll (and scripts/backfill-beneficiarios.js).
+const BUSINESS_TYPE = /(?<!NO )DESARROLLAN ACTIVIDAD ECON[OÓ]MICA|PYME|GRAN EMPRESA/i;
+const LEADER_BODY = /GRUPO DE ACCI[OÓ]N LOCAL|DESARROLLO RURAL|LEADER|\bGAL\b|\bGDR\b/i;
+publicRouter.get('/api/negocios', (req, res) => {
+  const rows = db.prepare(`
+    SELECT g.bdns_ref, g.title, g.plain_title, g.granting_body, g.granting_level,
+           g.region, g.province, g.municipality, g.category,
+           g.ai_summary, g.plain_explainer, g.amount_max, g.budget_total,
+           g.source_url, g.application_url, g.sede_url, g.is_rolling,
+           g.deadline_date AS deadline, g.beneficiarios_bdns,
+           CASE WHEN g.deadline_source = 'computed' AND g.deadline_confirmed = 0
+                THEN 1 ELSE 0 END AS deadline_estimated,
+           e.funds_what
+    FROM grant_row g LEFT JOIN grant_eligibility e ON e.grant_id = g.id
+    WHERE g.published = 1 AND g.status = 'OPEN'
+    ORDER BY g.deadline_date IS NULL, g.deadline_date
+    LIMIT 5000`).all();
+  const grants = [];
+  for (const r of rows) {
+    let types = [];
+    try { types = JSON.parse(r.beneficiarios_bdns || '[]'); } catch { /* keep empty */ }
+    const leader = LEADER_BODY.test(r.granting_body || '');
+    if (!leader && !types.some(t => BUSINESS_TYPE.test(t))) continue;
+    delete r.beneficiarios_bdns;
+    grants.push({ ...r, leader: leader ? 1 : 0 });
+  }
+  const last = db.prepare('SELECT MAX(created_at) m FROM grant_row').get().m;
+  const regions = [...new Set(grants.map(r => r.region).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'es'));
+  res.json({ grants, regions, stats: { open: grants.length, leader: grants.filter(g => g.leader).length, updated: last ? last.slice(0, 10) : null } });
+});
+
+// Public GAL finder: which LEADER group covers a municipality. Same data and the same
+// honesty rules as the chat (src/gal.js): 2014-2020 entries are labelled as such, and an
+// unknown village is never assigned a group.
+publicRouter.get('/api/gal', (req, res) => {
+  const place = { name: String(req.query.name || ''), province: String(req.query.province || ''), ccaa: String(req.query.ccaa || '') };
+  const r = galLookup(place);
+  const clean = (g) => ({ name: g.name, phone: g.phone || null, email: g.email || null, web: g.web || null, address: g.address || null });
+  res.json({ ...r, gals: (r.gals || []).map(clean) });
 });
 
 const MESES_ES = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio',

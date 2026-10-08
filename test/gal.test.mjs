@@ -46,3 +46,36 @@ test('an unlocated visitor gets the no-data answer rather than nothing', () => {
 test('no GAL file built yet: the chat gets no GAL block at all', () => {
   assert.equal(galContext({ ccaa: 'Castilla y León', province: 'Palencia', name: 'Villaturde' }, null), '');
 });
+
+// ---- national layer (official: false) -------------------------------------------------
+const national = {
+  ccaa: ['Castilla y León', 'Andalucía'],
+  gals: {
+    ...data.gals,
+    'rrn:1': { id: 'rrn:1', name: 'GDR CONDADO DE HUELVA', phone: '959000000', email: 'gdr@condado.es', ccaa: 'Andalucía', province: 'Huelva', official: false, period: '2014-2020' },
+    'rrn:2': { id: 'rrn:2', name: 'GDR CUENCA MINERA', phone: '959111111', ccaa: 'Andalucía', province: 'Huelva', official: false, period: '2014-2020' },
+  },
+  // 21005 = Almonte (listed); Nerva is not listed anywhere
+  municipios: { ...data.municipios, 21005: ['rrn:1'] },
+};
+
+test('a village from the national list gets its group, flagged as the 2014-2020 list to confirm', () => {
+  const ctx = galContext({ ccaa: 'Andalucía', province: 'Huelva', name: 'Almonte' }, national);
+  assert.match(ctx, /GDR CONDADO DE HUELVA/);
+  assert.match(ctx, /2014-2020/);
+  assert.match(ctx, /confirmar/);
+});
+
+test('a village missing from the national list is unknown, never "outside LEADER": province groups offered as candidates', () => {
+  const ctx = galContext({ ccaa: 'Andalucía', province: 'Huelva', name: 'Nerva' }, national);
+  assert.doesNotMatch(ctx, /no está dentro de ningún/);
+  assert.match(ctx, /no sabemos con seguridad/);
+  assert.match(ctx, /GDR CONDADO DE HUELVA/);
+  assert.match(ctx, /GDR CUENCA MINERA/);
+});
+
+test('official 2023-2027 entries carry no old-list warning', () => {
+  const ctx = galContext({ ccaa: 'Castilla y León', province: 'Palencia', name: 'Villaturde' }, national);
+  assert.match(ctx, /ADRI PÁRAMOS Y VALLES/);
+  assert.doesNotMatch(ctx, /2014-2020/);
+});
