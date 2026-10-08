@@ -145,6 +145,11 @@ function plazoFromBases(basesText) {
 //   3. the same two, read from the bases' plazo sentence            -> estimated ('computed')
 // A known end date decides the status; BDNS's `abierto` only counts when there is none,
 // because it goes stale. Direct awards are never OPEN.
+// Days an estimated (computed, unconfirmed) deadline is given before it closes a call.
+// The nightly sweep in server.js applies the same grace.
+export const ESTIMATE_GRACE_DAYS = 7;
+const addDays = (isoDate, n) => new Date(Date.parse(isoDate + 'T00:00:00Z') + n * 86400000).toISOString().slice(0, 10);
+
 export function deadlineFor(detail, { openDate = null, basesText = null, today = new Date().toISOString().slice(0, 10) } = {}) {
   let deadline = null, source = null, confirmed = 0;
   const base = (detail.fechaInicioSolicitud || detail.fechaRecepcion || openDate || '').slice(0, 10);
@@ -165,8 +170,11 @@ export function deadlineFor(detail, { openDate = null, basesText = null, today =
       source = 'computed'; confirmed = 0;
     }
   }
+  // An estimated date counts from BDNS registration, but the period really starts when the
+  // bulletin publishes the extract, often days later - so it only closes a call after a grace.
+  const closesOn = deadline && source === 'computed' && !confirmed ? addDays(deadline, ESTIMATE_GRACE_DAYS) : deadline;
   const status = isDirectAward(detail) ? 'CLOSED'
-    : deadline ? (deadline >= today ? 'OPEN' : 'CLOSED')
+    : deadline ? (closesOn >= today ? 'OPEN' : 'CLOSED')
     : saysClosed(detail) ? 'CLOSED' : detail.abierto ? 'OPEN' : 'ANNOUNCED';
   return { deadline, source, confirmed, status };
 }

@@ -83,3 +83,11 @@ test('direct awards are never open; a known end date beats the abierto flag', ()
   assert.equal(fromBases.source, 'computed');
   assert.ok(fromBases.deadline > '2026-09-01');
 });
+
+test('an estimated deadline gets a grace week before it closes a call', () => {
+  const d = { tipoConvocatoria: 'Concurrencia competitiva - canónica', abierto: false, textFin: '10 días naturales', fechaRecepcion: '2026-09-20' };
+  const r = deadlineFor(d, { today: '2026-10-05' });            // estimate 2026-09-30, +7 = 10-07
+  assert.equal(r.source, 'computed');
+  assert.equal(r.status, 'OPEN');
+  assert.equal(deadlineFor(d, { today: '2026-10-08' }).status, 'CLOSED');
+});

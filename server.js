@@ -17,6 +17,7 @@ import { grantPath, BASE_URL } from './src/seoUtils.js';
 import { login, logout, loginThrottled, redeemInvite, sessionUser,
          setSessionCookie, clearSessionCookie, seedOperator } from './src/auth.js';
 import { pollOnce } from './src/ingest/poll.js';
+import { ESTIMATE_GRACE_DAYS } from './src/ingest/enrich.js';
 import { pollLicitacionesOnce, drainStrandedLicitaciones } from './src/ingest/pollLicitaciones.js';
 import { alert } from './src/ingest/bdns.js';
 
@@ -160,14 +161,18 @@ cron.schedule('30 4 * * *', () => {
   const nowIso = new Date().toISOString();
   // Read the about-to-close published grants first (only those have an indexable ficha
   // worth telling IndexNow about - see plan §6 "en cada cambio de estado").
+  // Estimated deadlines (computed, unconfirmed) get ESTIMATE_GRACE_DAYS before closing: they
+  // count from BDNS registration, but the period starts at bulletin publication (enrich.js).
+  const graceCutoff = new Date(Date.now() - ESTIMATE_GRACE_DAYS * 86400000).toISOString().slice(0, 10);
+  const pastDeadline = `status = 'OPEN' AND deadline_date IS NOT NULL AND (CASE
+      WHEN deadline_source = 'computed' AND deadline_confirmed = 0 THEN deadline_date < @grace
+      ELSE deadline_date < @today END)`;
   const closingSoon = db.prepare(`
-    SELECT bdns_ref, plain_title, title FROM grant_row
-    WHERE status = 'OPEN' AND published = 1 AND deadline_date IS NOT NULL AND deadline_date < ?
-  `).all(today);
+    SELECT bdns_ref, plain_title, title FROM grant_row WHERE published = 1 AND ${pastDeadline}
+  `).all({ today, grace: graceCutoff });
   const closed = db.prepare(`
-    UPDATE grant_row SET status = 'CLOSED', closed_at = ?
-    WHERE status = 'OPEN' AND deadline_date IS NOT NULL AND deadline_date < ?
-  `).run(nowIso, today);
+    UPDATE grant_row SET status = 'CLOSED', closed_at = @now WHERE ${pastDeadline}
+  `).run({ now: nowIso, today, grace: graceCutoff });
   if (closed.changes) console.log(`closed ${closed.changes} grant(s) past their deadline`);
   if (closingSoon.length) pingIndexNow(closingSoon.map(g => BASE_URL + grantPath(g)));
 
