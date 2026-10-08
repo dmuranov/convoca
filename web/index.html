@@ -70,6 +70,10 @@
       <span class="muted" id="region-hint">Te enseñamos lo estatal, lo de tu comunidad, lo de tu diputación y lo de tu ayuntamiento. Valen también las pedanías y juntas vecinales.</span>
     </div>
     <div class="filter-chips" id="filters"></div>
+    <div class="chat-filter-note" id="chat-filter-note" hidden>
+      <span id="chat-filter-text"></span>
+      <button class="btn small ghost" type="button" id="chat-filter-clear">Ver todas</button>
+    </div>
     <div class="grants-grid" id="grid"></div>
     <div class="alerta-box" data-alerta data-section="subvenciones" data-filters="{}" hidden></div>
     <p class="muted" id="est-note" hidden style="font-size:.85em">
@@ -152,7 +156,7 @@ const grantPath = (g) => `/subvenciones/${(g.plain_title || g.title || '')
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, c =>
   ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const TYPES = { Ayuntamiento: 'Ayuntamientos', Junta_Vecinal: 'Juntas vecinales', Asociacion: 'Asociaciones', Club_Deportivo: 'Clubes', AMPA: 'AMPAs', Otro: 'Otras' };
-let ALL = [], activeCat = null, place = null;   // place = {name, province, ccaa}
+let ALL = [], chatMatch = null, activeCat = null, place = null;   // place = {name, province, ccaa}
 const NATIONWIDE = 'Toda España';   // mirrors src/ingest/regions.js
 
 function daysLeft(deadline) {
@@ -168,7 +172,11 @@ function render() {
   // Four tiers apply to a place: nationwide, its comunidad, its province, its own town.
   // A call from a different province — or from another town's ayuntamiento — is excluded.
   // That is the whole point of asking where you are.
-  let list = place
+  // The assistant's matches, when it has just searched, replace every other filter.
+  if (chatMatch) {
+    var chatList = ALL.filter(g => chatMatch.has(String(g.bdns_ref)));
+  }
+  let list = chatMatch ? chatList : place
     ? ALL.filter(g => {
         if (g.region === NATIONWIDE) return true;
         if (g.region !== place.ccaa) return false;
@@ -179,7 +187,7 @@ function render() {
         return true;
       })
     : ALL;
-  if (activeCat) list = list.filter(g => (g.category || 'otros') === activeCat);
+  if (activeCat && !chatMatch) list = list.filter(g => (g.category || 'otros') === activeCat);
   document.getElementById('empty').hidden = !!list.length;
   document.getElementById('est-note').hidden = !list.some(g => g.deadline && g.deadline_estimated);
   grid.innerHTML = list.map((g, i) => {
@@ -264,6 +272,7 @@ const placeClear = document.getElementById('place-clear');
 
 function setPlace(p, { silent = false } = {}) {
   place = p;
+  if (!silent) { chatMatch = null; const n = document.getElementById('chat-filter-note'); if (n) n.hidden = true; }
   // `label` is the place they typed (maybe a pedanía); `name` is the municipality it
   // resolves to, which is what matches ayuntamiento-level grants.
   placeInput.value = p ? (p.label || p.name) : '';
@@ -342,6 +351,7 @@ document.getElementById('grid').addEventListener('click', (ev) => {
     document.getElementById('filters').addEventListener('click', (ev) => {
       const b = ev.target.closest('button'); if (!b) return;
       activeCat = b.dataset.c || null;
+      chatMatch = null; document.getElementById('chat-filter-note').hidden = true;
       document.querySelectorAll('#filters button').forEach(x => x.classList.toggle('on', x === b));
       render();
     });
@@ -413,11 +423,41 @@ document.getElementById('chat-form').addEventListener('submit', async (ev) => {
     });
     const j = await r.json();
     thinking.textContent = j.reply || j.error || 'No he podido responder.';
+    applyChatResult(j, thinking);
     if (j.reply) history.push({ role: 'assistant', content: j.reply });
   } catch {
     thinking.textContent = 'No hay conexión ahora mismo. Inténtalo más tarde.';
   }
 });
+
+// ---- the assistant's search filters the list --------------------------------------------
+// /api/chat returns the grants it found (matches, total). The list shows exactly those, so
+// "he encontrado 3" and what the visitor sees always agree; "Ver todas" or any other filter
+// change goes back to the normal list.
+function setChatMatch(refs, total, label) {
+  chatMatch = refs && refs.length ? new Set(refs.map(String)) : null;
+  const note = document.getElementById('chat-filter-note');
+  if (note) {
+    note.hidden = !chatMatch;
+    if (chatMatch) document.getElementById('chat-filter-text').textContent =
+      `El asistente ha encontrado ${total} convocatoria${total === 1 ? '' : 's'}${label ? ` (${label})` : ''}: la lista muestra solo esas.`;
+  }
+  render();
+}
+document.getElementById('chat-filter-clear')?.addEventListener('click', () => setChatMatch(null));
+// Called after each assistant reply: filter the list, and give the reply a link to it.
+function applyChatResult(j, bubble) {
+  if (!j || !Array.isArray(j.matches)) return;
+  if (j.total > 0) {
+    setChatMatch(j.matches, j.total, j.place?.label);
+    const a = document.createElement('a');
+    a.href = '#abiertas';
+    a.className = 'chat-list-link';
+    a.textContent = `Ver las ${j.total} en la lista ↑`;
+    bubble.appendChild(document.createElement('br'));
+    bubble.appendChild(a);
+  }
+}
 </script>
 </body>
 </html>

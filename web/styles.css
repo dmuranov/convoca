@@ -191,3 +191,9 @@ footer.site {
 #contact-form input, #contact-form textarea { margin: .25rem 0 .6rem; }
 #contact-form textarea { resize: vertical; }
 #contact-note:empty { display: none; }
+
+/* The assistant's search result filtering the list (web/index.html, web/negocios.html). */
+.chat-filter-note { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: .6rem;
+  background: var(--accent-soft); border: 1px solid var(--line); border-radius: var(--radius); padding: .6rem .9rem; margin: .8rem 0; }
+.chat-filter-note[hidden] { display: none; }
+.chat-list-link { font-size: .85rem; font-weight: 600; }

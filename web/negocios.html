@@ -77,6 +77,10 @@
     <h2 style="text-align:center">Ayudas abiertas para negocios</h2>
     <p class="muted" id="place-note" style="text-align:center" hidden></p>
     <div class="filter-chips" id="filters"></div>
+    <div class="chat-filter-note" id="chat-filter-note" hidden>
+      <span id="chat-filter-text"></span>
+      <button class="btn small ghost" type="button" id="chat-filter-clear">Ver todas</button>
+    </div>
     <div class="grants-grid" id="grid"></div>
     <div class="alerta-box" data-alerta data-section="negocios" data-filters="{}" hidden></div>
     <p class="muted" id="empty" hidden style="text-align:center">
@@ -134,7 +138,7 @@ const safeUrl = (u) => {
   try { return new URL(/^https?:\/\//i.test(s) ? s : 'https://' + s).href; } catch { return null; }
 };
 
-let ALL = [], onlyLeader = false, place = null;
+let ALL = [], chatMatch = null, onlyLeader = false, place = null;
 
 function daysLeft(deadline) {
   if (!deadline) return null;
@@ -145,7 +149,7 @@ function render() {
   // Keep the "avísame" box's pre-filled filters in step with what the visitor is looking at.
   const box = document.querySelector('[data-alerta]');
   if (box) box.dataset.filters = JSON.stringify({ ccaa: place?.ccaa || null, province: place?.province || null, municipality: place?.name || null, leader: onlyLeader || null });
-  const list = ALL
+  const list = chatMatch ? ALL.filter(g => chatMatch.has(String(g.bdns_ref))) : ALL
     .filter(g => !onlyLeader || g.leader)
     .filter(g => !place || !g.region || g.region === 'Toda España' || g.region === place.ccaa);
   document.getElementById('empty').hidden = !!list.length;
@@ -174,6 +178,7 @@ document.getElementById('filters').addEventListener('click', (ev) => {
   const b = ev.target.closest('button');
   if (!b) return;
   onlyLeader = b.dataset.f === 'leader';
+  chatMatch = null; document.getElementById('chat-filter-note').hidden = true;
   document.querySelectorAll('#filters button').forEach(x => x.classList.toggle('on', x === b));
   render();
 });
@@ -237,6 +242,7 @@ placeMenu.addEventListener('click', (ev) => {
   const b = ev.target.closest('button[data-i]');
   if (!b) return;
   place = placeMenu._matches[+b.dataset.i];
+  chatMatch = null; document.getElementById('chat-filter-note').hidden = true;
   placeInput.value = place.label;
   placeMenu.hidden = true;
   const note = document.getElementById('place-note');
@@ -284,15 +290,45 @@ document.getElementById('chat-form').addEventListener('submit', async (ev) => {
   try {
     const r = await fetch('/api/chat', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ message, history: chatHistory.slice(0, -1), place }),
+      body: JSON.stringify({ message, history: chatHistory.slice(0, -1), place, section: 'negocios' }),
     });
     const j = await r.json();
     thinking.textContent = j.reply || j.error || 'No he podido responder.';
+    applyChatResult(j, thinking);
     if (j.reply) chatHistory.push({ role: 'assistant', content: j.reply });
   } catch {
     thinking.textContent = 'No hay conexión ahora mismo. Inténtalo más tarde.';
   }
 });
+
+// ---- the assistant's search filters the list --------------------------------------------
+// /api/chat returns the grants it found (matches, total). The list shows exactly those, so
+// "he encontrado 3" and what the visitor sees always agree; "Ver todas" or any other filter
+// change goes back to the normal list.
+function setChatMatch(refs, total, label) {
+  chatMatch = refs && refs.length ? new Set(refs.map(String)) : null;
+  const note = document.getElementById('chat-filter-note');
+  if (note) {
+    note.hidden = !chatMatch;
+    if (chatMatch) document.getElementById('chat-filter-text').textContent =
+      `El asistente ha encontrado ${total} convocatoria${total === 1 ? '' : 's'}${label ? ` (${label})` : ''}: la lista muestra solo esas.`;
+  }
+  render();
+}
+document.getElementById('chat-filter-clear')?.addEventListener('click', () => setChatMatch(null));
+// Called after each assistant reply: filter the list, and give the reply a link to it.
+function applyChatResult(j, bubble) {
+  if (!j || !Array.isArray(j.matches)) return;
+  if (j.total > 0) {
+    setChatMatch(j.matches, j.total, j.place?.label);
+    const a = document.createElement('a');
+    a.href = '#abiertas';
+    a.className = 'chat-list-link';
+    a.textContent = `Ver las ${j.total} en la lista ↑`;
+    bubble.appendChild(document.createElement('br'));
+    bubble.appendChild(a);
+  }
+}
 </script>
 </body>
 </html>

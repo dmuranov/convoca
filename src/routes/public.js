@@ -13,6 +13,7 @@ import { NATIONWIDE, INE_PROVINCES, CCAA } from '../ingest/regions.js';
 import { notifyOperator } from '../notify.js';
 import { galContext, galLookup } from '../gal.js';
 import { isBusinessGrant, isLeaderGrant } from '../negocios.js';
+import { searchGrants, placeFromText } from '../chatSearch.js';
 
 export const publicRouter = Router();
 
@@ -34,8 +35,6 @@ const MAX_HISTORY = 10;
 // With the territory filter applied in SQL, a placed visitor's whole eligible set is
 // usually well under this. Unplaced visitors get a deliberately small national slice and
 // the assistant asks where they are, rather than us shipping the country every message.
-const CHAT_CONTEXT_PLACED = Number(process.env.CHAT_CONTEXT_PLACED || 15);
-const CHAT_CONTEXT_UNPLACED = Number(process.env.CHAT_CONTEXT_UNPLACED || 12);
 
 // Contact form. The daily per-IP cap is the rate limit; the honeypot catches the rest.
 const CONTACT_CAP = Number(process.env.CONTACT_DAILY_CAP || 3);
@@ -182,45 +181,13 @@ function formatFechaEs(iso) {
   return `${parseInt(d, 10)} de ${MESES_ES[parseInt(mo, 10) - 1]} de ${y}`;
 }
 
-function chatContext(place) {
-  // Only published grants; computed deadlines carry the estimated marker.
-  // Territory filtering happens in SQL, not in the model. Shipping the whole open set and
-  // asking the model to ignore the irrelevant ones is paying Opus rates to run a WHERE
-  // clause — and it answers worse, because it is hunting through Murcia to serve Palencia.
-  const where = ["g.published = 1", "g.status = 'OPEN'"];
-  const args = {};
-  if (place) {
-    where.push(`(g.region = @nationwide
-                 OR (g.region = @ccaa
-                     AND (g.province IS NULL OR g.province = @province)
-                     AND (g.municipality IS NULL OR g.municipality = @municipality)))`);
-    Object.assign(args, {
-      nationwide: NATIONWIDE,
-      ccaa: place.ccaa,
-      province: place.province ?? null,
-      // A visitor who named only a province must not be shown one town's money.
-      municipality: place.name ?? null,
-    });
-  }
-  const rows = db.prepare(`
-    SELECT COALESCE(g.plain_title, g.title) AS title,
-           g.granting_body, g.region, g.province, g.municipality, g.category, g.ai_summary,
-           g.amount_max, g.budget_total, g.source_url, g.is_rolling,
-           g.deadline_date AS deadline,
-           CASE WHEN g.deadline_source = 'computed' AND g.deadline_confirmed = 0
-                THEN 1 ELSE 0 END AS deadline_estimated,
-           e.entity_types, e.funds_what, e.territory_scope
-    FROM grant_row g LEFT JOIN grant_eligibility e ON e.grant_id = g.id
-    WHERE ${where.join(' AND ')}
-    -- Unplaced visitors see nationwide calls first: those are the only ones we can be
-    -- sure apply to them before they tell us where they are.
-    ORDER BY ${place ? '' : `(g.region = '${NATIONWIDE}') DESC,`}
-             g.deadline_date IS NULL, g.deadline_date
-    LIMIT @limit`).all({ ...args, limit: place ? CHAT_CONTEXT_PLACED : CHAT_CONTEXT_UNPLACED });
+const CHAT_SHOW = Number(process.env.CHAT_SHOW || 8);
+function formatForChat(rows) {
   return rows.map((g, i) =>
-    `[${i + 1}] ${g.title}\n  Órgano: ${g.granting_body || 'n/d'}\n  Resumen: ${g.ai_summary || 'n/d'}\n` +
-    `  Territorio: ${g.region || 'n/d'}\n` +
+    `[${i + 1}] ${g.plain_title || g.title}\n  Órgano: ${g.granting_body || 'n/d'}\n  Resumen: ${g.ai_summary || 'n/d'}\n` +
+    `  Territorio: ${[g.region, g.province, g.municipality].filter(Boolean).join(' / ') || 'n/d'}\n` +
     `  Beneficiarios: ${g.entity_types || '[]'} | Financia: ${g.funds_what || '[]'} | Ámbito: ${g.territory_scope || 'n/d'}\n` +
+    `  Importe: ${g.amount_max ? `hasta ${g.amount_max} €` : g.budget_total ? `${g.budget_total} € en total` : 'según bases'}\n` +
     `  Plazo: ${g.deadline
       ? (g.deadline_estimated
         ? `hasta ${formatFechaEs(g.deadline)}* (fecha estimada: puede variar según festivos locales y el cómputo de días hábiles; confírmala en las bases oficiales)`
@@ -247,16 +214,20 @@ function resolvePlace(raw) {
            label: typeof raw.label === 'string' ? raw.label.slice(0, 80) : (muni?.name ?? province ?? ccaa) };
 }
 
-const CHAT_SYSTEM = `Eres el asistente público de Convoca (plazoabierto.es), un servicio que ayuda a pueblos pequeños y a sus entidades locales (ayuntamientos, juntas vecinales, asociaciones, clubes, AMPAs) a no perder subvenciones.
+const CHAT_SYSTEM = `Eres el asistente público de Plazo Abierto (plazoabierto.es), que ayuda a cualquiera a encontrar subvenciones y ayudas públicas abiertas en España: personas y familias, estudiantes, autónomos y empresas, asociaciones, clubes, AMPAs y ayuntamientos.
+
+Cómo funciona: antes de que respondas, el sistema ya ha buscado en todas las convocatorias abiertas que tenemos publicadas para el territorio y el tema de la pregunta. Recibes el bloque BÚSQUEDA HECHA / RESULTADO con el número exacto de convocatorias encontradas y, debajo, las mejores. La lista de la página ya se ha filtrado sola para mostrar exactamente esas.
 
 Reglas estrictas:
-- Responde SOLO sobre financiación/subvenciones para el medio rural (entidades locales, y también vecinos que quieren montar o ampliar un negocio en el pueblo: autónomos, pequeñas empresas agroalimentarias, etc.) y sobre cómo funciona Convoca. Cualquier otro tema: redirige amablemente.
-- Si alguien pregunta por montar o ampliar un negocio en el pueblo, la vía habitual son las ayudas LEADER que gestiona el Grupo de Acción Local (GAL) de su comarca. Solo cita convocatorias concretas del listado. Si tras el listado hay un bloque "GAL LEADER DE LA ZONA", úsalo: nombra ese GAL con sus datos de contacto tal cual vienen, y dile que conviene contactarles antes de gastar, porque estas ayudas suelen exigir pedirlas antes de comprar o empezar obras. Sigue exactamente lo que diga ese bloque: si dice que no tenemos el dato o que no hay GAL, no nombres ninguno. Nunca deduzcas ni recuerdes de memoria qué GAL le corresponde a un pueblo, ni sus plazos: los límites de cada GAL no siguen las provincias y te equivocarías.
-- Solo puedes citar las convocatorias del listado CONVOCATORIAS ABIERTAS que se te proporciona. Si ninguna encaja, dilo claramente y sugiere dejar el contacto — jamás inventes una convocatoria.
-- El listado que recibes YA está filtrado por el territorio del usuario cuando sabemos de dónde es: todo lo que aparece le sirve. Si el listado viene marcado como SIN UBICACIÓN, solo contiene ayudas de toda España — pregúntale de qué pueblo o provincia es antes de recomendarle nada territorial, y dile que puede escribirlo arriba en "¿De dónde eres?" para ver también lo de su comunidad, su diputación y su ayuntamiento.
+- Empieza diciendo cuántas has encontrado, con el número exacto del RESULTADO (por ejemplo: "He encontrado 3 ayudas abiertas para pymes en Segovia; te las he dejado en la lista de la página."). Si son más de las que ves, recomienda las mejores (máximo 3) y di que el resto está en la lista.
+- Si el RESULTADO es 0, dilo claramente ("No he encontrado ninguna convocatoria abierta para eso en..."). Si no sabemos el territorio, pregunta de qué pueblo o provincia es: puede escribirlo en la pregunta o arriba en "¿De dónde eres?". Si sí lo sabemos, sugiere volver a mirar más adelante o escribir a hola@plazoabierto.es.
+- Si el RESULTADO dice que ninguna es específica del tema, dilo así y presenta las de negocios de la zona como alternativa.
+- Solo puedes citar las convocatorias del listado que recibes. Jamás inventes una convocatoria ni recomiendes ayudas de memoria.
+- Si alguien pregunta por montar o ampliar un negocio en un pueblo, recuerda que la vía habitual son las ayudas LEADER del Grupo de Acción Local (GAL) de su comarca. Si tras el listado hay un bloque "GAL LEADER DE LA ZONA", úsalo: nombra ese GAL con sus datos de contacto tal cual vienen, y dile que conviene contactarles antes de gastar. Sigue exactamente lo que diga ese bloque: si dice que no tenemos el dato o que no hay GAL, no nombres ninguno. Nunca deduzcas de memoria qué GAL le corresponde a un pueblo.
 - PROHIBIDO calcular, estimar o deducir plazos o fechas. Solo puedes repetir literalmente el campo "Plazo" del listado. Si dice "pendiente de confirmar", di exactamente eso. Si la fecha lleva asterisco (*), repite siempre también el aviso de fecha estimada que la acompaña.
-- Sé breve (2-6 frases), castellano llano, tono cercano de bar de pueblo pero profesional. Sin listas largas: la mejor opción u opciones (máx. 3).
-- Texto plano, sin markdown: nada de asteriscos para negrita, guiones de lista ni encabezados — el chat no los interpreta y se ven tal cual. El asterisco pegado a una fecha estimada es la única excepción: fórmalo tal y como viene en el campo "Plazo".
+- Sé breve (2-6 frases), castellano llano, tono cercano pero profesional.
+- Texto plano, sin markdown: nada de asteriscos para negrita, guiones de lista ni encabezados. El asterisco pegado a una fecha estimada es la única excepción.
+- Temas que no son ayudas públicas: redirige amablemente.
 - No pidas ni almacenes datos personales. Para seguimiento, remite al correo hola@plazoabierto.es.`;
 
 // ---- contact form ----
@@ -324,7 +295,7 @@ publicRouter.post('/api/chat', async (req, res) => {
     return res.status(429).json({ error: 'Has llegado al límite diario del asistente. Escríbenos y te contestamos en persona.' });
   }
 
-  const { message, history, place: rawPlace } = req.body || {};
+  const { message, history, place: rawPlace, section } = req.body || {};
   if (typeof message !== 'string' || !message.trim() || message.length > MAX_INPUT) {
     return res.status(400).json({ error: 'mensaje inválido' });
   }
@@ -332,11 +303,21 @@ publicRouter.post('/api/chat', async (req, res) => {
     .filter(m => m && (m.role === 'user' || m.role === 'assistant') && typeof m.content === 'string')
     .map(m => ({ role: m.role, content: m.content.slice(0, MAX_INPUT) })) : [];
 
-  const place = resolvePlace(rawPlace);
-  const listing = chatContext(place);
-  const header = place
-    ? `CONVOCATORIAS ABIERTAS para ${place.label} (${[place.name, place.province, place.ccaa].filter(Boolean).join(', ')}) — ya filtradas por territorio:`
-    : 'CONVOCATORIAS ABIERTAS — SIN UBICACIÓN (solo ámbito estatal):';
+  // Where: the place picker, else the question itself ("empresas en Huelva"), else an earlier
+  // message in this conversation. What: every open grant there that fits the question
+  // (src/chatSearch.js). The count and the matches also go back to the page, which filters its
+  // list to exactly those - so "he encontrado 3" and the list always agree.
+  const place = resolvePlace(rawPlace) || placeFromText(message)
+    || [...past].reverse().filter(m => m.role === 'user').map(m => placeFromText(m.content)).find(Boolean) || null;
+  const found = searchGrants(message, { place, section: section === 'negocios' ? 'negocios' : null });
+  const shown = found.grants.slice(0, CHAT_SHOW);
+  const listing = formatForChat(shown);
+  const where = place ? `${place.label} (${[place.name, place.province, place.ccaa].filter(Boolean).join(', ')})` : 'SIN UBICACIÓN (solo vemos lo de toda España)';
+  const header = [
+    `BÚSQUEDA HECHA: territorio ${where}${found.terms.length ? `; tema: ${found.terms.join(', ')}` : ''}${found.business ? '; solo ayudas para empresas, autónomos y negocios' : ''}.`,
+    `RESULTADO: ${found.total} convocatoria${found.total === 1 ? '' : 's'} abierta${found.total === 1 ? '' : 's'}${found.fallback ? ' (ninguna es específica de ese tema: son todas las de negocios de la zona)' : ''}.`,
+    found.total > shown.length ? `Abajo van las ${shown.length} mejores; la lista de la página ya muestra las ${found.total}.` : '',
+  ].filter(Boolean).join('\n');
 
   try {
     const response = await anthropic.messages.create({
@@ -346,7 +327,7 @@ publicRouter.post('/api/chat', async (req, res) => {
         // Only the instructions are byte-identical across visitors, so only they are worth
         // caching. The listing below varies per territory and would never hit.
         { type: 'text', text: CHAT_SYSTEM, cache_control: { type: 'ephemeral', ttl: '1h' } },
-        { type: 'text', text: [`${header}\n\n${listing || '(ninguna publicada ahora mismo)'}`, galContext(place)].filter(Boolean).join('\n\n') },
+        { type: 'text', text: [`${header}\n\n${listing || '(ninguna)'}`, galContext(place)].filter(Boolean).join('\n\n') },
       ],
       messages: [...past, { role: 'user', content: message }],
     });
@@ -355,7 +336,8 @@ publicRouter.post('/api/chat', async (req, res) => {
     }
     const reply = response.content.find(b => b.type === 'text')?.text
       || 'Perdona, no he podido responder. Inténtalo de nuevo.';
-    res.json({ reply, remaining: Math.max(0, DAILY_CAP - used) });
+    res.json({ reply, remaining: Math.max(0, DAILY_CAP - used), total: found.total,
+      matches: found.grants.slice(0, 200).map(g => g.bdns_ref), place: place ? { label: place.label, ccaa: place.ccaa, province: place.province, name: place.name } : null });
   } catch (e) {
     console.error('chat error:', e.message);
     res.status(500).json({ error: 'El asistente no está disponible ahora mismo. Inténtalo más tarde.' });
