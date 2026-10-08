@@ -41,6 +41,9 @@ for (const [ref, row] of found) {
   const detail = await bdnsGet('/convocatorias', { numConv: ref });
   await sleep(250);
   if (screen(detail, today)) continue;                        // closed or nothing to apply to
+  // Stricter than the daily poll: an old call with no end date in BDNS is almost always
+  // long closed (Extremadura 2023 rounds, "DESIERTA"...). Only provably open ones are worth paying for.
+  if (!detail.abierto && !((detail.fechaFinSolicitud || '').slice(0, 10) >= today)) continue;
   keep.set(ref, row);
   console.log(`  ${ref} ${row.fechaRecepcion} ${prior ? '(was skipped: ' + prior.skip_reason + ')' : '(new)'} | ${(row.nivel2 || '').slice(0, 40)} | ${(row.descripcion || '').slice(0, 70)}`);
 }
