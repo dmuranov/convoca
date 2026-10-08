@@ -8,6 +8,8 @@ import { db } from '../db.js';
 import { BASE_URL, BENEFICIARIO_TYPES as TYPES, esc, eur, slugify, grantPath, daysLeft,
          CCAA_SLUGS, PROVINCE_CCAA, CATEGORY_SLUGS } from '../seoUtils.js';
 import { NATIONWIDE } from '../ingest/regions.js';
+import { alertBox, ALERT_ASSETS } from '../seoUtils.js';
+import { isBusinessGrant } from '../negocios.js';
 
 export const seoRouter = Router();
 
@@ -127,6 +129,7 @@ function renderPage(g) {
 <link rel="canonical" href="${esc(canonical)}">
 <link rel="icon" type="image/png" href="/favicon.png">
 <link rel="stylesheet" href="/styles.css">
+${ALERT_ASSETS}
 <script type="application/ld+json">${JSON.stringify(jsonLd)}</script>
 </head>
 <body>
@@ -168,6 +171,9 @@ function renderPage(g) {
   ${explainerBlock}
   ${checklistBlock}
   ${relatedBlock}
+
+  ${alertBox(isBusinessGrant(g) ? 'negocios' : 'subvenciones', {
+    ccaa: g.region !== NATIONWIDE ? g.region : null, province: g.province, category: g.category })}
 
   <p class="official">Resumen generado automáticamente a partir de las bases oficiales
   (BDNS). Ante cualquier duda, prevalece siempre el texto de la convocatoria oficial

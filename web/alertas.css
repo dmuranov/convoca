@@ -1,0 +1,18 @@
+/* "Avísame" email-alert box (web/alertas.js). Uses the site tokens from styles.css. */
+.alerta-box { background: var(--accent-soft); border: 1px solid var(--line); border-radius: var(--radius);
+  padding: 1rem 1.1rem; margin: 1.5rem 0; }
+.alerta-box h3 { margin: 0 0 .6rem; font-size: 1.05rem; }
+.alerta-chips { display: flex; flex-wrap: wrap; gap: .4rem; margin-bottom: .7rem; }
+.alerta-chip { display: inline-flex; align-items: center; gap: .3rem; background: var(--card); border: 1px solid var(--line);
+  border-radius: 999px; padding: .2rem .35rem .2rem .7rem; font-size: .85rem; }
+.alerta-chip.all { padding-right: .7rem; color: var(--muted); }
+.alerta-chip button { border: none; background: none; cursor: pointer; font-size: 1rem; line-height: 1;
+  color: var(--muted); padding: 0 .25rem; }
+.alerta-chip button:hover { color: var(--ink); }
+.alerta-form { display: flex; flex-wrap: wrap; gap: .5rem; }
+.alerta-form input[type=email] { flex: 1 1 14rem; min-width: 0; padding: .55rem .7rem; border: 1px solid var(--line);
+  border-radius: 8px; font: inherit; }
+.alerta-form select { padding: .5rem; border: 1px solid var(--line); border-radius: 8px; font: inherit; background: var(--card); }
+.alerta-hp { position: absolute; left: -9999px; width: 1px; height: 1px; opacity: 0; }
+.alerta-msg { margin: .5rem 0 0; font-size: .9rem; min-height: 1.2em; }
+.alerta-consent { margin: .3rem 0 0; font-size: .78rem; color: var(--muted); }

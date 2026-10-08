@@ -12,7 +12,7 @@ import { MUNICIPIOS, PEDANIAS, findMunicipio, fold } from '../municipios.js';
 import { NATIONWIDE, INE_PROVINCES, CCAA } from '../ingest/regions.js';
 import { notifyOperator } from '../notify.js';
 import { galContext, galLookup } from '../gal.js';
-import { LEADER_TEXT } from '../ingest/poll.js';
+import { isBusinessGrant, isLeaderGrant } from '../negocios.js';
 
 export const publicRouter = Router();
 
@@ -134,9 +134,6 @@ publicRouter.get('/api/licitaciones', (req, res) => {
 // pymes are "personas físicas/jurídicas que desarrollan actividad económica"), or when a
 // LEADER group (GAL/GDR) grants it - those are the rural-business aid most people miss.
 // beneficiarios_bdns is filled by the daily poll (and scripts/backfill-beneficiarios.js).
-const BUSINESS_TYPE = /(?<!NO )DESARROLLAN ACTIVIDAD ECON[OÓ]MICA|PYME|GRAN EMPRESA/i;
-// Not plain "desarrollo rural": regional ministries ("Consejería de Desarrollo Rural") are not GALs.
-const LEADER_BODY = /GRUPO DE ACCI[OÓ]N LOCAL|GRUPO DE DESARROLLO RURAL|ASOCIACI[OÓ]N (PARA EL |DE )?DESARROLLO|\bLEADER\b|\bGAL\b|\bGDR\b/i;
 publicRouter.get('/api/negocios', (req, res) => {
   const rows = db.prepare(`
     SELECT g.bdns_ref, g.title, g.plain_title, g.granting_body, g.granting_level,
@@ -153,11 +150,8 @@ publicRouter.get('/api/negocios', (req, res) => {
     LIMIT 5000`).all();
   const grants = [];
   for (const r of rows) {
-    let types = [];
-    try { types = JSON.parse(r.beneficiarios_bdns || '[]'); } catch { /* keep empty */ }
-    // Group names vary (ARADUEY-Campos, PROYNERSO, CEDER...), so the title counts too.
-    const leader = LEADER_BODY.test(r.granting_body || '') || LEADER_TEXT.test(r.title || '');
-    if (!leader && !types.some(t => BUSINESS_TYPE.test(t))) continue;
+    if (!isBusinessGrant(r)) continue;
+    const leader = isLeaderGrant(r);
     delete r.beneficiarios_bdns;
     grants.push({ ...r, leader: leader ? 1 : 0 });
   }

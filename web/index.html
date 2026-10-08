@@ -8,6 +8,8 @@
 <meta name="description" content="Plazo Abierto — ayudas y subvenciones para pueblos, asociaciones, autónomos y negocios rurales, y el grupo LEADER de tu comarca, en toda España. En tu idioma, con la fecha clara.">
 <link rel="icon" type="image/png" href="/favicon.png">
 <link rel="stylesheet" href="/styles.css">
+<link rel="stylesheet" href="/alertas.css">
+<script src="/alertas.js" defer></script>
 <!-- Microsoft Clarity — public pages only; never on /panel or /operator, whose
      session replays would capture municipal and personal data. -->
 <script type="text/javascript">
@@ -69,6 +71,7 @@
     </div>
     <div class="filter-chips" id="filters"></div>
     <div class="grants-grid" id="grid"></div>
+    <div class="alerta-box" data-alerta data-section="subvenciones" data-filters="{}" hidden></div>
     <p class="muted" id="est-note" hidden style="font-size:.85em">
       * Fecha estimada: puede variar según festivos locales y el cómputo de días hábiles.
       Confírmala siempre en las bases oficiales de la convocatoria.</p>
@@ -158,6 +161,9 @@ function daysLeft(deadline) {
 }
 
 function render() {
+  // Keep the "avísame" box's pre-filled filters in step with what the visitor is looking at.
+  const box = document.querySelector('[data-alerta]');
+  if (box) box.dataset.filters = JSON.stringify({ ccaa: place?.ccaa || null, province: place?.province || null, municipality: place?.name || null, category: activeCat });
   const grid = document.getElementById('grid');
   // Four tiers apply to a place: nationwide, its comunidad, its province, its own town.
   // A call from a different province — or from another town's ayuntamiento — is excluded.

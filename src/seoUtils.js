@@ -75,7 +75,15 @@ export function grantListItem(g) {
   </article>`;
 }
 
-export function pageShell({ title, description, canonical, jsonLd, breadcrumbHtml, bodyHtml }) {
+// The "Avísame de nuevas convocatorias como esta" box (web/alertas.js fills it in; it stays
+// empty and invisible while alerts are switched off). Filters are pre-filled from the page.
+export function alertBox(section, filters = {}) {
+  const f = Object.fromEntries(Object.entries(filters).filter(([, v]) => v != null && v !== ''));
+  return `<div class="alerta-box" data-alerta data-section="${esc(section)}" data-filters="${esc(JSON.stringify(f))}" hidden></div>`;
+}
+export const ALERT_ASSETS = '<link rel="stylesheet" href="/alertas.css"><script src="/alertas.js" defer></script>';
+
+export function pageShell({ title, description, canonical, jsonLd, breadcrumbHtml, bodyHtml, robots }) {
   return `<!doctype html>
 <html lang="es">
 <head>
@@ -86,6 +94,8 @@ export function pageShell({ title, description, canonical, jsonLd, breadcrumbHtm
 <link rel="canonical" href="${esc(canonical)}">
 <link rel="icon" type="image/png" href="/favicon.png">
 <link rel="stylesheet" href="/styles.css">
+${robots ? `<meta name="robots" content="${esc(robots)}">` : ''}
+${ALERT_ASSETS}
 ${jsonLd ? `<script type="application/ld+json">${JSON.stringify(jsonLd)}</script>` : ''}
 </head>
 <body>

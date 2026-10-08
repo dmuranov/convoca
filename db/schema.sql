@@ -286,3 +286,43 @@ CREATE TABLE IF NOT EXISTS contact_message (
 );
 CREATE INDEX IF NOT EXISTS idx_contact_received ON contact_message(received_at);
 CREATE INDEX IF NOT EXISTS idx_contact_status ON contact_message(status);
+
+-- ---- Email alerts ("Avísame de nuevas convocatorias como esta") ----
+-- One row per signup. The visitor gives only an email; section + filters come from the page
+-- they were on. Double opt-in: nothing is sent except the confirmation until status=confirmed.
+CREATE TABLE IF NOT EXISTS alert_subscription (
+  id                TEXT PRIMARY KEY,
+  email             TEXT NOT NULL COLLATE NOCASE,
+  section           TEXT NOT NULL CHECK (section IN ('subvenciones','licitaciones','negocios')),
+  filters           TEXT NOT NULL DEFAULT '{}',        -- canonical JSON, keys sorted
+  frequency         TEXT NOT NULL DEFAULT 'weekly' CHECK (frequency IN ('weekly','daily')),
+  status            TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','confirmed','unsubscribed')),
+  confirm_token     TEXT NOT NULL UNIQUE,
+  unsubscribe_token TEXT NOT NULL UNIQUE,
+  consent_at        TEXT NOT NULL,
+  consent_version   TEXT NOT NULL,
+  source_url        TEXT,                              -- path of the page they signed up on
+  source_type       TEXT,                              -- detalle-subvencion, listado-negocios, hub...
+  confirm_sent_at   TEXT,
+  confirmed_at      TEXT,
+  unsubscribed_at   TEXT,
+  last_sent_at      TEXT,
+  created_at        TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_alert_sub_status ON alert_subscription(status, frequency);
+CREATE INDEX IF NOT EXISTS idx_alert_sub_email ON alert_subscription(email);
+-- Every item ever mailed to a subscription: the dedup guarantee (never the same item twice).
+CREATE TABLE IF NOT EXISTS alert_sent (
+  subscription_id TEXT NOT NULL REFERENCES alert_subscription(id),
+  item_kind       TEXT NOT NULL CHECK (item_kind IN ('grant','licitacion')),
+  item_id         TEXT NOT NULL,
+  sent_at         TEXT NOT NULL DEFAULT (datetime('now')),
+  PRIMARY KEY (subscription_id, item_kind, item_id)
+);
+-- Per-IP signup rate limit (same pattern as chat_usage / login_attempt).
+CREATE TABLE IF NOT EXISTS alert_signup_attempt (
+  ip     TEXT NOT NULL,
+  hour   TEXT NOT NULL,
+  count  INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (ip, hour)
+);

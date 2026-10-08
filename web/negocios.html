@@ -8,6 +8,8 @@
 <meta name="description" content="Subvenciones abiertas para autónomos, pymes y negocios rurales, y el Grupo de Acción Local (LEADER) de tu pueblo, en toda España. En español llano, con la fecha clara.">
 <link rel="icon" type="image/png" href="/favicon.png">
 <link rel="stylesheet" href="/styles.css">
+<link rel="stylesheet" href="/alertas.css">
+<script src="/alertas.js" defer></script>
 <link rel="stylesheet" href="/styles-licitaciones.css">
 <style>
   .gal-result { margin-top: 1rem; text-align: left; }
@@ -75,6 +77,7 @@
     <p class="muted" id="place-note" style="text-align:center" hidden></p>
     <div class="filter-chips" id="filters"></div>
     <div class="grants-grid" id="grid"></div>
+    <div class="alerta-box" data-alerta data-section="negocios" data-filters="{}" hidden></div>
     <p class="muted" id="empty" hidden style="text-align:center">
       Ahora mismo no hay ayudas para negocios publicadas en el índice. Vuelve a pasarte pronto.</p>
   </section>
@@ -123,6 +126,9 @@ function daysLeft(deadline) {
 }
 
 function render() {
+  // Keep the "avísame" box's pre-filled filters in step with what the visitor is looking at.
+  const box = document.querySelector('[data-alerta]');
+  if (box) box.dataset.filters = JSON.stringify({ ccaa: place?.ccaa || null, province: place?.province || null, municipality: place?.name || null, leader: onlyLeader || null });
   const list = ALL
     .filter(g => !onlyLeader || g.leader)
     .filter(g => !place || !g.region || g.region === 'Toda España' || g.region === place.ccaa);

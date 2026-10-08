@@ -21,12 +21,18 @@ for (const [name, decl] of [['plain_title', 'TEXT'], ['sede_url', 'TEXT'], ['pla
                             ['closed_at', 'TEXT'], ['archived_at', 'TEXT'],
                             // BDNS tiposBeneficiarios descriptions (JSON array): the only record of
                             // whether a call is for businesses (see /api/negocios)
-                            ['beneficiarios_bdns', 'TEXT']]) {
+                            ['beneficiarios_bdns', 'TEXT'],
+                            // when it first became public: email alerts match on this, so
+                            // "new" means "new on the site", not "new in our ingest"
+                            ['published_at', 'TEXT']]) {
   if (!cols.has(name)) db.exec(`ALTER TABLE grant_row ADD COLUMN ${name} ${decl}`);
 }
 const licCols = new Set(db.prepare('PRAGMA table_info(licitacion_row)').all().map(c => c.name));
-for (const [name, decl] of [['ccaa', 'TEXT']]) {
+for (const [name, decl] of [['ccaa', 'TEXT'], ['published_at', 'TEXT']]) {
   if (!licCols.has(name)) db.exec(`ALTER TABLE licitacion_row ADD COLUMN ${name} ${decl}`);
 }
+
+db.exec('CREATE INDEX IF NOT EXISTS idx_grant_published_at ON grant_row(published_at)');
+db.exec('CREATE INDEX IF NOT EXISTS idx_licitacion_published_at ON licitacion_row(published_at)');
 
 export const uuid = () => crypto.randomUUID();

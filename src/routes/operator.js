@@ -56,8 +56,11 @@ operatorRouter.post('/api/op/grants/:id/publish', (req, res) => {
   // panel upgrades them to a firm date.
   const warning = g.deadline_date && g.deadline_source === 'computed' && !g.deadline_confirmed
     ? 'plazo calculado sin confirmar — se publicará como fecha estimada (*)' : null;
-  db.prepare(`UPDATE grant_row SET published = ?, status = CASE WHEN ? = 1 AND status = 'ANNOUNCED' THEN 'OPEN' ELSE status END WHERE id = ?`)
-    .run(req.body?.published ? 1 : 0, req.body?.published ? 1 : 0, req.params.id);
+  // published_at: first time it went public (SQLite evaluates SET against the old row). Email
+  // alerts match on it; unpublishing keeps it, so a re-publish is not "new" again.
+  db.prepare(`UPDATE grant_row SET published_at = CASE WHEN ? = 1 AND published = 0 AND published_at IS NULL THEN datetime('now') ELSE published_at END,
+      published = ?, status = CASE WHEN ? = 1 AND status = 'ANNOUNCED' THEN 'OPEN' ELSE status END WHERE id = ?`)
+    .run(req.body?.published ? 1 : 0, req.body?.published ? 1 : 0, req.body?.published ? 1 : 0, req.params.id);
   // §6: publish/unpublish is an "alta o cambio de estado" either way - the ficha's
   // content or its very existence (200 vs 404) just changed, worth a recrawl either way.
   const row = db.prepare('SELECT bdns_ref, plain_title, title FROM grant_row WHERE id = ?').get(req.params.id);
@@ -74,7 +77,8 @@ operatorRouter.post('/api/op/grants/publish-batch', (req, res) => {
   if (ids.length > 500) return res.status(400).json({ error: 'máximo 500 por lote' });
 
   const publish = db.prepare(`UPDATE grant_row
-      SET published = 1, status = CASE WHEN status = 'ANNOUNCED' THEN 'OPEN' ELSE status END
+      SET published = 1, published_at = CASE WHEN published = 0 AND published_at IS NULL THEN datetime('now') ELSE published_at END,
+          status = CASE WHEN status = 'ANNOUNCED' THEN 'OPEN' ELSE status END
     WHERE id = ? AND ai_summary IS NOT NULL
       -- CLOSED with no end date = a direct award (or BDNS says closed): nothing to apply to, so it
       -- stays out of the public open lists, but the pilot still publishes direct awards for the
@@ -120,8 +124,9 @@ operatorRouter.get('/api/op/licitaciones', (req, res) => {
 // publishing the ~1,010-row historical tier in bulk with no one having looked at any of
 // it, which is what the batch endpoint's gate exists to prevent.
 operatorRouter.post('/api/op/licitaciones/:expediente/publish', (req, res) => {
-  const { changes } = db.prepare('UPDATE licitacion_row SET published = ? WHERE expediente = ?')
-    .run(req.body?.published ? 1 : 0, req.params.expediente);
+  const { changes } = db.prepare(`UPDATE licitacion_row SET published_at = CASE WHEN ? = 1 AND published = 0 AND published_at IS NULL THEN datetime('now') ELSE published_at END,
+      published = ? WHERE expediente = ?`)
+    .run(req.body?.published ? 1 : 0, req.body?.published ? 1 : 0, req.params.expediente);
   if (!changes) return res.status(404).json({ error: 'no encontrado' });
   const row = db.prepare('SELECT id, titulo, expediente FROM licitacion_row WHERE expediente = ?').get(req.params.expediente);
   if (row) pingIndexNow(BASE_URL + licitacionPath(row));
@@ -144,7 +149,7 @@ operatorRouter.post('/api/op/licitaciones/publish-batch', (req, res) => {
   if (!ids?.length) return res.status(400).json({ error: 'faltan ids' });
   if (ids.length > 500) return res.status(400).json({ error: 'máximo 500 por lote' });
 
-  const publish = db.prepare(`UPDATE licitacion_row SET published = 1
+  const publish = db.prepare(`UPDATE licitacion_row SET published = 1, published_at = CASE WHEN published = 0 AND published_at IS NULL THEN datetime('now') ELSE published_at END
     WHERE expediente = ? AND resumen IS NOT NULL AND estado = 'licitacion'`);
   const run = db.transaction((list) => list.reduce((n, exp) => n + publish.run(exp).changes, 0));
   const published = run(ids);
@@ -383,6 +388,30 @@ operatorRouter.post('/api/op/poll', (req, res) => {
 });
 
 // ---- metrics (§7) ----
+// Growth: email-alert signups (src/routes/alerts.js). Counts only - no addresses leave the DB.
+operatorRouter.get('/api/op/growth', (req, res) => {
+  const q = (sql) => db.prepare(sql).all();
+  const one = (sql) => db.prepare(sql).get();
+  res.json({
+    perDay: q(`SELECT substr(created_at,1,10) d, COUNT(*) signups,
+                SUM(CASE WHEN confirmed_at IS NOT NULL THEN 1 ELSE 0 END) confirmed
+              FROM alert_subscription WHERE created_at >= datetime('now','-30 days') GROUP BY d ORDER BY d DESC`),
+    // Signups older than a day only: a fresh one has not had time to confirm yet.
+    confirmation: one(`SELECT COUNT(*) total, SUM(CASE WHEN confirmed_at IS NOT NULL THEN 1 ELSE 0 END) confirmed
+              FROM alert_subscription WHERE created_at < datetime('now','-1 day')`),
+    activeBySection: q(`SELECT section, frequency, COUNT(*) n FROM alert_subscription
+              WHERE status = 'confirmed' GROUP BY section, frequency ORDER BY section`),
+    unsubscribes: one(`SELECT COUNT(*) total,
+              SUM(CASE WHEN unsubscribed_at >= datetime('now','-30 days') THEN 1 ELSE 0 END) last30
+              FROM alert_subscription WHERE status = 'unsubscribed'`),
+    bySource: q(`SELECT COALESCE(source_type,'otra') source, COUNT(*) signups,
+              SUM(CASE WHEN confirmed_at IS NOT NULL THEN 1 ELSE 0 END) confirmed
+              FROM alert_subscription GROUP BY source ORDER BY signups DESC`),
+    digests: one(`SELECT COUNT(*) items, COUNT(DISTINCT subscription_id) subscriptions,
+              SUM(CASE WHEN sent_at >= datetime('now','-7 days') THEN 1 ELSE 0 END) items7d FROM alert_sent`),
+  });
+});
+
 operatorRouter.get('/api/op/metrics', (req, res) => {
   const surfaced = db.prepare(`SELECT COUNT(*) c FROM notification`).get().c;
   const interested = db.prepare(`SELECT COUNT(*) c FROM notification WHERE response = 'interesado'`).get().c;

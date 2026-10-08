@@ -16,7 +16,7 @@ const toPublish = db.prepare(`SELECT id, expediente, titulo FROM licitacion_row
 console.log(`publishing ${toPublish.length} open tender(s)`);
 if (!toPublish.length) process.exit(0);
 
-const mark = db.prepare('UPDATE licitacion_row SET published = 1 WHERE id = ?');
+const mark = db.prepare("UPDATE licitacion_row SET published = 1, published_at = CASE WHEN published = 0 AND published_at IS NULL THEN datetime('now') ELSE published_at END WHERE id = ?");
 const run = db.transaction((rows) => rows.forEach(r => mark.run(r.id)));
 run(toPublish);
 

@@ -20,6 +20,8 @@ import { pollOnce } from './src/ingest/poll.js';
 import { ESTIMATE_GRACE_DAYS } from './src/ingest/enrich.js';
 import { pollLicitacionesOnce, drainStrandedLicitaciones } from './src/ingest/pollLicitaciones.js';
 import { alert } from './src/ingest/bdns.js';
+import { alertsRouter, alertsEnabled, pruneAlertData } from './src/routes/alerts.js';
+import { runDigests } from './src/alerts/digest.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -80,6 +82,7 @@ app.get('/api/invite/:token', (req, res) => {
 
 // ---- routers ----
 app.use(publicRouter);
+app.use(alertsRouter);
 app.use(panelRouter);
 app.use(operatorRouter);
 app.use(webhooksRouter);
@@ -143,6 +146,18 @@ if (process.env.NODE_ENV === 'production') {
     try { await drainStrandedLicitaciones(); }
     catch (e) { alert('placsp_backlog', e.message); }
   }, { timezone: 'Europe/Madrid' });
+
+  // ---- email-alert digests (src/alerts/digest.js) ----
+  // Daily subscribers every morning at 08:00; weekly ones on Monday at 08:00. Both match on
+  // items published since the subscription was confirmed, so the publish step decides "new".
+  cron.schedule('0 8 * * *', async () => {
+    if (!alertsEnabled()) return;
+    try { await runDigests('daily'); } catch (e) { alert('alerts', `daily digests: ${e.message}`); }
+  }, { timezone: 'Europe/Madrid' });
+  cron.schedule('0 8 * * 1', async () => {
+    if (!alertsEnabled()) return;
+    try { await runDigests('weekly'); } catch (e) { alert('alerts', `weekly digests: ${e.message}`); }
+  }, { timezone: 'Europe/Madrid' });
 }
 
 // prune expired sessions daily, enforce the contact-form retention rule promised under
@@ -156,6 +171,8 @@ cron.schedule('30 4 * * *', () => {
     .toISOString().slice(0, 19).replace('T', ' ');
   const { changes } = db.prepare('DELETE FROM contact_message WHERE received_at < ?').run(cutoff);
   if (changes) console.log(`pruned ${changes} contact message(s) older than ${CONTACT_RETENTION_DAYS} days`);
+  // Alert emails nobody confirmed / that left, and every rate-limit IP (privacy page promises both).
+  try { pruneAlertData(); } catch (e) { alert('alerts', `prune: ${e.message}`); }
 
   const today = new Date().toISOString().slice(0, 10);
   const nowIso = new Date().toISOString();

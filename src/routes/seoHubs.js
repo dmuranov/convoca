@@ -7,7 +7,7 @@
 // simply 404s again next time it's crawled - it never sits indexed empty (§1: "una página
 // con cero resultados es una doorway page").
 import { Router } from 'express';
-import { BASE_URL, esc, grantPath, grantListItem, pageShell,
+import { BASE_URL, esc, grantPath, grantListItem, pageShell, alertBox,
          CCAA_SLUGS, PROVINCE_CCAA, PROVINCE_SLUGS, CATEGORY_SLUGS, BENEFICIARIO_SLUGS } from '../seoUtils.js';
 import { MIN_LIVE, grantsByCcaa, grantsByProvince, grantsByCategory,
          grantsByBeneficiario, grantsByBeneficiarioCcaa } from '../seoQueries.js';
@@ -16,7 +16,7 @@ export const seoHubsRouter = Router();
 
 // ---- rendering ----
 
-function renderHub({ path, title, intro, breadcrumbHtml, grants }) {
+function renderHub({ path, title, intro, breadcrumbHtml, grants, alert = {} }) {
   const canonical = BASE_URL + path;
   const jsonLd = [{
     '@context': 'https://schema.org',
@@ -29,6 +29,7 @@ function renderHub({ path, title, intro, breadcrumbHtml, grants }) {
     <h1>${esc(title)}</h1>
     <p class="muted">${esc(intro)}</p>
     <div class="grants-grid">${grants.map(grantListItem).join('')}</div>
+    ${alertBox('subvenciones', alert)}
   `;
   return pageShell({
     title: `${title} | Plazo Abierto`,
@@ -52,7 +53,7 @@ seoHubsRouter.get('/subvenciones/:seg', (req, res, next) => {
       title,
       intro: `${H(grants)} para pueblos, asociaciones y entidades locales de ${ccaaName}, en castellano llano.`,
       breadcrumbHtml: `<a href="/">Inicio</a> › <span>${esc(ccaaName)}</span>`,
-      grants,
+      grants, alert: { ccaa: ccaaName },
     }));
   }
 
@@ -66,7 +67,7 @@ seoHubsRouter.get('/subvenciones/:seg', (req, res, next) => {
       title,
       intro: `${H(grants)} de ${categoryName.toLowerCase()} para pueblos, asociaciones y entidades locales.`,
       breadcrumbHtml: `<a href="/">Inicio</a> › <span>${esc(categoryName)}</span>`,
-      grants,
+      grants, alert: { category: categoryName },
     }));
   }
 
@@ -87,7 +88,7 @@ seoHubsRouter.get('/subvenciones/:ccaaSeg/:provSeg', (req, res, next) => {
     title,
     intro: `${H(grants)} para pueblos, asociaciones y entidades locales de la provincia de ${provinceName}.`,
     breadcrumbHtml: `<a href="/">Inicio</a> › <a href="/subvenciones/${esc(req.params.ccaaSeg)}/">${esc(ccaaName)}</a> › <span>${esc(provinceName)}</span>`,
-    grants,
+    grants, alert: { ccaa: ccaaName, province: provinceName },
   }));
 });
 
@@ -103,7 +104,7 @@ seoHubsRouter.get('/ayudas/:benSeg', (req, res, next) => {
     title,
     intro: `${H(grants)} para ${ben.label.toLowerCase()}, en castellano llano.`,
     breadcrumbHtml: `<a href="/">Inicio</a> › <span>${esc(ben.label)}</span>`,
-    grants,
+    grants, alert: { beneficiario: ben.enumVal },
   }));
 });
 
@@ -121,6 +122,6 @@ seoHubsRouter.get('/ayudas/:benSeg/:ccaaSeg', (req, res, next) => {
     title,
     intro: `${H(grants)} para ${ben.label.toLowerCase()} en ${ccaaName}.`,
     breadcrumbHtml: `<a href="/">Inicio</a> › <a href="/ayudas/${esc(req.params.benSeg)}/">${esc(ben.label)}</a> › <span>${esc(ccaaName)}</span>`,
-    grants,
+    grants, alert: { beneficiario: ben.enumVal, ccaa: ccaaName },
   }));
 });

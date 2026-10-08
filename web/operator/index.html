@@ -47,6 +47,11 @@
   </div>
 
   <details class="card">
+    <summary>Crecimiento: avisos por correo</summary>
+    <div id="growth" class="muted">cargando…</div>
+  </details>
+
+  <details class="card">
     <summary>Métricas</summary>
     <div id="metrics" class="muted">cargando…</div>
   </details>
@@ -121,6 +126,26 @@ async function loadContact() {
         ${opts}
       </select></p>`;
   }).join('') || '<p class="muted">Sin mensajes.</p>';
+}
+
+async function loadGrowth() {
+  const g = await j('/api/op/growth');
+  const pct = (a, b) => (b ? Math.round(100 * a / b) + '%' : '—');
+  const SEC = { subvenciones: 'Subvenciones', licitaciones: 'Licitaciones', negocios: 'Negocios' };
+  const FREQ = { weekly: 'semanal', daily: 'diario' };
+  const active = g.activeBySection.reduce((n, r) => n + r.n, 0);
+  $('growth').innerHTML =
+    `<p>Suscriptores activos: <strong>${active}</strong>
+       ${g.activeBySection.map(r => `· ${SEC[r.section] || r.section} (${FREQ[r.frequency] || r.frequency}): ${r.n}`).join(' ')}</p>
+     <p>Tasa de confirmación: <strong>${pct(g.confirmation.confirmed || 0, g.confirmation.total)}</strong>
+       (${g.confirmation.confirmed || 0} de ${g.confirmation.total}, altas de hace más de 1 día)
+       · Bajas: <strong>${g.unsubscribes.total}</strong> (${g.unsubscribes.last30 || 0} en 30 días)</p>
+     <p>Avisos enviados: ${g.digests.items} convocatorias a ${g.digests.subscriptions} suscriptores
+       (${g.digests.items7d || 0} en los últimos 7 días)</p>
+     <table><tr><th>Día</th><th>Altas</th><th>Confirmadas</th></tr>
+       ${g.perDay.map(r => `<tr><td>${r.d}</td><td>${r.signups}</td><td>${r.confirmed}</td></tr>`).join('') || '<tr><td colspan="3">Sin altas en 30 días</td></tr>'}</table>
+     <table style="margin-top:.6rem"><tr><th>Página de origen</th><th>Altas</th><th>Confirmadas</th></tr>
+       ${g.bySource.map(r => `<tr><td>${r.source}</td><td>${r.signups}</td><td>${r.confirmed}</td></tr>`).join('') || '<tr><td colspan="3">—</td></tr>'}</table>`;
 }
 
 async function loadMetrics() {
@@ -371,7 +396,7 @@ $('pollnow').addEventListener('click', async () => {
 $('pendingonly').addEventListener('change', loadGrants);
 $('out').addEventListener('click', async () => { await fetch('/api/logout', { method: 'POST' }); location.href = '/'; });
 
-loadAlerts(); loadContact(); loadMetrics(); loadGrants(); loadLicitaciones(); loadRequests(); loadInvites(); loadNotifications();
+loadAlerts(); loadContact(); loadGrowth(); loadMetrics(); loadGrants(); loadLicitaciones(); loadRequests(); loadInvites(); loadNotifications();
 </script>
 </body>
 </html>

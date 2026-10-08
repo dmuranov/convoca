@@ -4,7 +4,7 @@
 // same as grants got their fichas before their hubs.
 import { Router } from 'express';
 import { db } from '../db.js';
-import { BASE_URL, esc, eur, slugify, licitacionPath, daysLeft } from '../seoUtils.js';
+import { BASE_URL, esc, eur, slugify, licitacionPath, daysLeft, alertBox, ALERT_ASSETS } from '../seoUtils.js';
 import { ESTADO_LABEL } from '../ingest/enrichLicitacion.js';
 
 export const seoLicitacionesRouter = Router();
@@ -87,6 +87,7 @@ function renderPage(l) {
 <link rel="canonical" href="${esc(canonical)}">
 <link rel="icon" type="image/png" href="/favicon.png">
 <link rel="stylesheet" href="/styles.css">
+${ALERT_ASSETS}
 <script type="application/ld+json">${JSON.stringify(jsonLd)}</script>
 </head>
 <body>
@@ -129,6 +130,9 @@ function renderPage(l) {
 
   ${explainerBlock}
   ${requisitosBlock}
+
+  ${(() => { let c = []; try { c = JSON.parse(l.cpv || '[]'); } catch {}
+    return alertBox('licitaciones', { ccaa: l.ccaa, tipo_contrato: l.tipo_contrato, cpv: c[0] ? String(c[0]).slice(0, 2) : null }); })()}
 
   <p class="official">Resumen generado automáticamente a partir del anuncio y los pliegos
   oficiales. Ante cualquier duda, prevalece siempre el texto de la licitación oficial
