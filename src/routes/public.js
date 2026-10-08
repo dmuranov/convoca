@@ -12,6 +12,7 @@ import { MUNICIPIOS, PEDANIAS, findMunicipio, fold } from '../municipios.js';
 import { NATIONWIDE, INE_PROVINCES, CCAA } from '../ingest/regions.js';
 import { notifyOperator } from '../notify.js';
 import { galContext, galLookup } from '../gal.js';
+import { LEADER_TEXT } from '../ingest/poll.js';
 
 export const publicRouter = Router();
 
@@ -154,7 +155,8 @@ publicRouter.get('/api/negocios', (req, res) => {
   for (const r of rows) {
     let types = [];
     try { types = JSON.parse(r.beneficiarios_bdns || '[]'); } catch { /* keep empty */ }
-    const leader = LEADER_BODY.test(r.granting_body || '');
+    // Group names vary (ARADUEY-Campos, PROYNERSO, CEDER...), so the title counts too.
+    const leader = LEADER_BODY.test(r.granting_body || '') || LEADER_TEXT.test(r.title || '');
     if (!leader && !types.some(t => BUSINESS_TYPE.test(t))) continue;
     delete r.beneficiarios_bdns;
     grants.push({ ...r, leader: leader ? 1 : 0 });

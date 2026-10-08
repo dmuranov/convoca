@@ -52,9 +52,23 @@ export const isPilotScope = (row) => PILOT_RE.test(`${row.nivel2 || ''} ${row.ni
 // of the directory serves. The cost is that some purely urban business aid now gets
 // enriched too; the territory filter, not the beneficiary type, is what keeps the
 // directory rural.
+// Some LEADER groups register their open call for projects as "Concesión directa" in BDNS
+// (seen 2026-10: MACOVALL 865356, CEDER Tiétar 808337, Ceuta 840814, ARADUEY 913434), so
+// the type alone would drop exactly the rural-business calls the Negocios page is for. Let a
+// direct award through only when it reads as a call ("convocatoria") in a LEADER /
+// local-development context and is not one of the usual named transfers (nominativa,
+// convenio, running costs). The deadline check below and the operator gate still apply.
+export const LEADER_TEXT = /\bLEADER\b|DESARROLLO LOCAL PARTICIPATIVO|\bEDLP?\b|GRUPOS? DE ACCI[OÓ]N LOCAL|\bGAL\b|\bGDR\b/i;
+export function isMislabelledLeaderCall(detail) {
+  const text = [detail.descripcion, detail.descripcionFinalidad, detail.organo?.nivel2, detail.organo?.nivel3].filter(Boolean).join(' ');
+  return /\bCONV(OCATORIA)?\b/i.test(detail.descripcion || '')
+    && LEADER_TEXT.test(text)
+    && !/NOMINATIVA|CONVENIO|GASTOS DE FUNCIONAMIENTO|COFINAN/i.test(detail.descripcion || '');
+}
+
 export function screen(detail, today = new Date().toISOString().slice(0, 10)) {
   const tipo = detail.tipoConvocatoria || '';
-  if (!/concurrencia competitiva/i.test(tipo)) {
+  if (!/concurrencia competitiva/i.test(tipo) && !isMislabelledLeaderCall(detail)) {
     return `no competitiva (${tipo || 'tipo desconocido'})`;
   }
   // Nobody can apply to a closed call, so never pay to extract one. Barely matters on the
@@ -105,6 +119,24 @@ async function runPoll() {
   // mid-loop below leaves a row inserted with neither skip_reason nor plain_title set,
   // and treating existence alone as "already handled" would strand it forever, since
   // BDNS gives no per-row signal that would ever make it look "changed" again.
+  console.log(`poll: ${seen.size} in ${LOOKBACK_DAYS}-day window`
+    + `${regions.length ? ` (regions ${regions.join(',')})` : ' (Spain)'}`);
+  // A quiet day (fresh=0, everything already known) is normal. Zero results from BDNS
+  // itself over a full 7-day nationwide window never legitimately happens - it means the
+  // search API broke silently (auth, schema change, empty response) with no exception to
+  // catch. Timeouts (llm.js) stop a hung *enrichment* call; this catches a poll that
+  // "succeeds" having done nothing.
+  if (seen.size === 0) {
+    alert('poll', `zero convocatorias returned from BDNS across the ${LOOKBACK_DAYS}-day window`
+      + `${regions.length ? ` (regions ${regions.join(',')})` : ' (Spain)'} - check BDNS reachability`);
+  }
+
+  return ingestRows(seen);
+}
+
+// Screen, enrich and store a set of BDNS search rows (numeroConvocatoria -> row). Shared by
+// the daily poll and one-off catch-ups such as scripts/backfill-leader.js.
+export async function ingestRows(seen) {
   const existing = db.prepare('SELECT id, skip_reason, plain_title FROM grant_row WHERE bdns_ref = ?');
   // `region` is deliberately left for enrichment: the search row's nivel2 is the granting
   // body's name (a municipality, a mancomunidad), not a territory. See ingest/regions.js.
@@ -125,17 +157,7 @@ async function runPoll() {
     }
     fresh.push({ id, ref, row });
   }
-  console.log(`poll: ${seen.size} in ${LOOKBACK_DAYS}-day window`
-    + `${regions.length ? ` (regions ${regions.join(',')})` : ' (Spain)'}, ${fresh.length} new/stranded`);
-  // A quiet day (fresh=0, everything already known) is normal. Zero results from BDNS
-  // itself over a full 7-day nationwide window never legitimately happens - it means the
-  // search API broke silently (auth, schema change, empty response) with no exception to
-  // catch. Timeouts (llm.js) stop a hung *enrichment* call; this catches a poll that
-  // "succeeds" having done nothing.
-  if (seen.size === 0) {
-    alert('poll', `zero convocatorias returned from BDNS across the ${LOOKBACK_DAYS}-day window`
-      + `${regions.length ? ` (regions ${regions.join(',')})` : ' (Spain)'} - check BDNS reachability`);
-  }
+  console.log(`ingest: ${seen.size} rows, ${fresh.length} new/stranded`);
 
   // Rows we skip stay in grant_row unpublished, so they are never reconsidered:
   // the dedupe above means each reference costs at most one detail call, ever.
