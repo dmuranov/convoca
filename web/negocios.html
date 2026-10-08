@@ -43,7 +43,7 @@
 
     <div class="stats">
       <div class="stat"><div class="n" id="st-open">—</div><div class="l">ayudas abiertas para negocios</div></div>
-      <div class="stat"><div class="n" id="st-leader">—</div><div class="l">de ellas, de grupos LEADER</div></div>
+      <div class="stat"><div class="n">Toda España</div><div class="l">buscador de grupos LEADER por pueblo</div></div>
       <div class="stat"><div class="n" id="st-upd">—</div><div class="l">última actualización del índice</div></div>
     </div>
   </div>
@@ -230,7 +230,6 @@ document.addEventListener('click', (ev) => { if (!ev.target.closest('.place-box'
     const r = await (await fetch('/api/negocios')).json();
     ALL = r.grants || [];
     document.getElementById('st-open').textContent = r.stats?.open ?? '—';
-    document.getElementById('st-leader').textContent = r.stats?.leader ?? '—';
     document.getElementById('st-upd').textContent = r.stats?.updated
       ? new Date(r.stats.updated).toLocaleDateString('es-ES', { day: 'numeric', month: 'short', year: 'numeric' }) : '—';
     if (r.stats?.leader) document.getElementById('filters').innerHTML =

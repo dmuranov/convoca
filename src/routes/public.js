@@ -134,7 +134,8 @@ publicRouter.get('/api/licitaciones', (req, res) => {
 // LEADER group (GAL/GDR) grants it - those are the rural-business aid most people miss.
 // beneficiarios_bdns is filled by the daily poll (and scripts/backfill-beneficiarios.js).
 const BUSINESS_TYPE = /(?<!NO )DESARROLLAN ACTIVIDAD ECON[OÓ]MICA|PYME|GRAN EMPRESA/i;
-const LEADER_BODY = /GRUPO DE ACCI[OÓ]N LOCAL|DESARROLLO RURAL|LEADER|\bGAL\b|\bGDR\b/i;
+// Not plain "desarrollo rural": regional ministries ("Consejería de Desarrollo Rural") are not GALs.
+const LEADER_BODY = /GRUPO DE ACCI[OÓ]N LOCAL|GRUPO DE DESARROLLO RURAL|ASOCIACI[OÓ]N (PARA EL |DE )?DESARROLLO|\bLEADER\b|\bGAL\b|\bGDR\b/i;
 publicRouter.get('/api/negocios', (req, res) => {
   const rows = db.prepare(`
     SELECT g.bdns_ref, g.title, g.plain_title, g.granting_body, g.granting_level,
