@@ -14,7 +14,7 @@
 import 'dotenv/config';
 import { db, uuid } from '../db.js';
 import { bdnsGet, ddmmyyyy, alert } from './bdns.js';
-import { prepareEnrichment, enrichBatch, endDateFromDetail, saysClosed } from './enrich.js';
+import { prepareEnrichment, enrichBatch, endDateFromDetail, saysClosed, LEADER_TEXT, isMislabelledLeaderCall } from './enrich.js';
 
 const LOOKBACK_DAYS = Number(process.env.POLL_LOOKBACK_DAYS || 7);
 const PAGE_SIZE = 200;
@@ -52,19 +52,8 @@ export const isPilotScope = (row) => PILOT_RE.test(`${row.nivel2 || ''} ${row.ni
 // of the directory serves. The cost is that some purely urban business aid now gets
 // enriched too; the territory filter, not the beneficiary type, is what keeps the
 // directory rural.
-// Some LEADER groups register their open call for projects as "Concesión directa" in BDNS
-// (seen 2026-10: MACOVALL 865356, CEDER Tiétar 808337, Ceuta 840814, ARADUEY 913434), so
-// the type alone would drop exactly the rural-business calls the Negocios page is for. Let a
-// direct award through only when it reads as a call ("convocatoria") in a LEADER /
-// local-development context and is not one of the usual named transfers (nominativa,
-// convenio, running costs). The deadline check below and the operator gate still apply.
-export const LEADER_TEXT = /\bLEADER\b|DESARROLLO LOCAL PARTICIPATIVO|\bEDLP?\b|GRUPOS? DE ACCI[OÓ]N LOCAL|\bGAL\b|\bGDR\b/i;
-export function isMislabelledLeaderCall(detail) {
-  const text = [detail.descripcion, detail.descripcionFinalidad, detail.organo?.nivel2, detail.organo?.nivel3].filter(Boolean).join(' ');
-  return /\bCONV(OCATORIA)?\b/i.test(detail.descripcion || '')
-    && LEADER_TEXT.test(text)
-    && !/NOMINATIVA|CONVENIO|GASTOS DE FUNCIONAMIENTO|COFINAN/i.test(detail.descripcion || '');
-}
+// LEADER_TEXT / isMislabelledLeaderCall live in enrich.js (shared with the deadline rule).
+export { LEADER_TEXT, isMislabelledLeaderCall };
 
 export function screen(detail, today = new Date().toISOString().slice(0, 10)) {
   const tipo = detail.tipoConvocatoria || '';

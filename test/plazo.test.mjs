@@ -47,3 +47,39 @@ test('a date that a relative period counts from is not the end', () => {
   assert.equal(parseEndDate('Un mes'), null);
   assert.equal(parseEndDate('Hasta agotar el crédito'), null);
 });
+
+import { deadlineFor } from '../src/ingest/enrich.js';
+
+test('wordings BDNS uses for relative periods', () => {
+  const p = (s) => { const r = parsePlazoTerm(s); return r && `${r.count} ${r.unit}`; };
+  assert.equal(p('16º día hábil posterior a la publicación en BOP'), '16 habiles');
+  assert.equal(p('20 DIES NATURALS DES DE LA PUBLICACIÓ AL BOPB'), '20 naturales');
+  assert.equal(p('vint dies hàbils desde el dia seguent'), '20 habiles');
+  assert.equal(p('15 hábiles contados desde el día siguiente'), '15 habiles');
+  assert.equal(p('Veinte (20) días naturales'), '20 naturales');
+  assert.equal(p('Dez días hábiles a partir do día seguinte'), '10 habiles');
+  assert.equal(p('Décimo quinto día hábil siguiente al de publicación'), '15 habiles');
+  assert.equal(p('Ultimo día del mes a contar desde la publicación'), '1 meses');
+  assert.equal(p('10'), '10 habiles');
+  assert.equal(p('Según bases reguladoras'), null);
+});
+
+test('more written end dates', () => {
+  assert.equal(parseEndDate('16 OCTUBRE 2026'), '2026-10-16');
+  assert.equal(parseEndDate('23 de juny de 2026'), '2026-06-23');
+  assert.equal(parseEndDate('10/19/2026'), '2026-10-19');
+  assert.equal(parseEndDate('FINS EL 9 D`OCTUBRE DE 2026, AMBDÓS INCLOSOS'), '2026-10-09');
+  assert.equal(parseEndDate('Antes del 7 de octubre a las 23:59', '2026-08-24'), '2026-10-07');
+  assert.equal(parseEndDate('hasta el 30/09 , o 10/10 si el nacimiento es en la 2ª quincena', '2026-05-13'), '2026-10-10');
+});
+
+test('direct awards are never open; a known end date beats the abierto flag', () => {
+  const today = '2026-10-08';
+  assert.equal(deadlineFor({ tipoConvocatoria: 'Concesión directa - instrumental', abierto: true, textFin: '' }, { today }).status, 'CLOSED');
+  assert.equal(deadlineFor({ tipoConvocatoria: 'Concurrencia competitiva - canónica', abierto: true, textFin: 'Hasta el 31 de diciembre de 2024' }, { today }).status, 'CLOSED');
+  assert.equal(deadlineFor({ tipoConvocatoria: 'Concurrencia competitiva - canónica', abierto: true, textFin: '' }, { today }).status, 'OPEN');
+  const fromBases = deadlineFor({ tipoConvocatoria: 'Concurrencia competitiva - canónica', abierto: false, textFin: 'Ver artículo 8', fechaRecepcion: '2026-09-01' },
+    { today, basesText: 'Artículo 8. El plazo de presentación de solicitudes será de quince días hábiles desde la publicación del extracto.' });
+  assert.equal(fromBases.source, 'computed');
+  assert.ok(fromBases.deadline > '2026-09-01');
+});

@@ -75,7 +75,11 @@ operatorRouter.post('/api/op/grants/publish-batch', (req, res) => {
 
   const publish = db.prepare(`UPDATE grant_row
       SET published = 1, status = CASE WHEN status = 'ANNOUNCED' THEN 'OPEN' ELSE status END
-    WHERE id = ? AND ai_summary IS NOT NULL AND status IN ('OPEN','ANNOUNCED')`);
+    WHERE id = ? AND ai_summary IS NOT NULL
+      -- CLOSED with no end date = a direct award (or BDNS says closed): nothing to apply to, so it
+      -- stays out of the public open lists, but the pilot still publishes direct awards for the
+      -- council panel (who already got what). Only past-deadline grants are refused.
+      AND (status IN ('OPEN','ANNOUNCED') OR (status = 'CLOSED' AND deadline_date IS NULL))`);
   const run = db.transaction((list) => list.reduce((n, id) => n + publish.run(id).changes, 0));
   const published = run(ids);
 
