@@ -93,7 +93,12 @@ async function runPoll() {
 
   const toEnrich = [];
   let unchanged = 0, prepFailed = 0;
+  // A tender whose estado changes inside the walked window appears more than once; the feed
+  // is newest-first, so the first copy is the current one.
+  const seenExp = new Set();
   for (const e of entries) {
+    if (seenExp.has(e.expediente)) continue;
+    seenExp.add(e.expediente);
     if (isCurrent(e)) { unchanged++; continue; }
     try {
       toEnrich.push(await prepareEnrichment(e));
@@ -144,7 +149,9 @@ async function drainTier(label, negate, limit) {
   const rows = db.prepare(
     `SELECT * FROM licitacion_row WHERE titulo IS NULL
      AND estado ${negate ? 'NOT IN' : 'IN'} (${placeholders})
-     ORDER BY created_at ASC LIMIT ?`
+     -- Open tier: what can still be bid on comes first, soonest deadline first (oldest-created
+     -- first left the week's new, biddable tenders waiting behind August's).
+     ORDER BY ${negate ? 'created_at ASC' : "(fecha_limite IS NOT NULL AND fecha_limite < date('now')), fecha_limite IS NULL, fecha_limite ASC, created_at ASC"} LIMIT ?`
   ).all(...OPEN_TENDER_ESTADOS, limit);
   if (!rows.length) return 0;
   const prepared = rows.map(row => ({ id: row.id, expediente: row.expediente, context: contextFromRow(row) }));

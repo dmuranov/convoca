@@ -338,6 +338,10 @@ const CONTROL_NUL = String.fromCharCode(0);
 const stripNul = (s) => s.split(CONTROL_NUL).join('');
 
 export async function enrichBatch(prepared) {
+  // One request per row: the Batch API rejects the WHOLE submission when a custom_id repeats
+  // (2026-10-05: "custom_ids must be unique within a batch" - a tender listed twice in one feed
+  // walk), which silently left every licitación of the day without a summary. Last copy wins.
+  prepared = [...new Map(prepared.map(p => [p.id, p])).values()];
   if (!prepared.length) return { enriched: 0, failed: 0 };
 
   // custom_id must match ^[a-zA-Z0-9_-]{1,64}$ - a real PLACSP expediente does not

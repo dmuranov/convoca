@@ -32,8 +32,13 @@ import { extractContext, enrichBatch } from '../src/ingest/enrichLicitacion.js';
 
 const all = process.argv.includes('--all');
 const long = process.argv.includes('--long');
+// --recovered: open licitaciones that already had a summary pass, then got their documents back
+// (scripts/refetch-pliegos.js clears resumen on them) - not the never-enriched backlog.
+const recovered = process.argv.includes('--recovered');
 const CHUNK = Number(process.env.REENRICH_CHUNK || 300);
-const where = all ? '' : long ? 'WHERE resumen IS NOT NULL AND LENGTH(raw_text) > 60000' : 'WHERE resumen IS NULL';
+const where = all ? '' : long ? 'WHERE resumen IS NOT NULL AND LENGTH(raw_text) > 60000'
+  : recovered ? "WHERE resumen IS NULL AND titulo IS NOT NULL AND LENGTH(raw_text) >= 200 AND estado IN ('licitacion','anuncio_previo') AND (fecha_limite IS NULL OR fecha_limite >= date('now'))"
+  : 'WHERE resumen IS NULL';
 const label = all ? ' (--all)' : long ? ' (--long, past the old 60000-char context cutoff)' : ' missing resumen';
 const total = db.prepare(`SELECT COUNT(*) c FROM licitacion_row ${where}`).get().c;
 console.log(`re-enriching ${total} licitación(es)${label} in chunks of ${CHUNK}`);
