@@ -186,17 +186,21 @@ const NON_PDF_EXT = /\.(zip|docx?|xlsx?|rar|7z)$/i;
 // fresh ones. Module-level by design: shared across every licitación in a poll run.
 let placspCookie = null;
 
-async function fetchOnePliego(p, attempt = 1) {
+// Waits before each retry of a 5xx. The WAF's refusals are temporary but outlast a quick retry:
+// on 2026-10-09 a document that failed twice 1.5 s apart (HTTP 500) downloaded fine three times
+// a few minutes later. ~800 of a week's 1,360 pliego failures were these.
+const PLIEGO_RETRY_WAITS_MS = [3000, 10000];
+
+async function fetchOnePliego(p, { attempt = 1, timeoutMs = 60000 } = {}) {
   const headers = { ...PLIEGO_HEADERS };
   if (placspCookie) headers.Cookie = placspCookie;
-  const res = await fetch(p.url, { headers, signal: AbortSignal.timeout(60000) });
+  const res = await fetch(p.url, { headers, signal: AbortSignal.timeout(timeoutMs) });
   const setCookie = res.headers.get('set-cookie');
   if (setCookie) placspCookie = setCookie.split(';')[0];
-  // One retry on 5xx - the WAF block observed in production is intermittent, not
-  // permanent, and the retry picks up whatever cookie the first attempt just received.
-  if (res.status >= 500 && attempt === 1) {
-    await new Promise(r => setTimeout(r, 1500));
-    return fetchOnePliego(p, 2);
+  // Retry 5xx with growing waits; each retry carries whatever cookie the last attempt received.
+  if (res.status >= 500 && attempt <= PLIEGO_RETRY_WAITS_MS.length) {
+    await new Promise(r => setTimeout(r, PLIEGO_RETRY_WAITS_MS[attempt - 1]));
+    return fetchOnePliego(p, { attempt: attempt + 1, timeoutMs });
   }
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   const contentType = res.headers.get('content-type') || '';
@@ -214,20 +218,38 @@ async function fetchOnePliego(p, attempt = 1) {
 // silently dropped from what the model actually reads (see the note there, 2026-09-07).
 const MAX_RAW_TEXT = 150_000;
 
-async function fetchPliegosText(pliegos, expediente) {
-  const parts = [];
-  for (const p of pliegos) {
-    if (NON_PDF_EXT.test(p.nombre)) {
-      console.log(`skipping non-PDF pliego for ${p.nombre}: unsupported extension`);
-      continue;
+// The documents a summary is built from - PCAP (administrative clauses), PPT (technical
+// specifications), conditions - are a few hundred KB. Engineering projects, memorias, annexes
+// and plans run to tens of MB: they caused ~500 of a week's timeouts and add little the
+// summary uses. So: fetch the core documents first, and the big ones only if nothing else
+// gave any text, with more time.
+const BULKY_DOC = /proyecto|proxecto|projecte|memoria|anejo|annex|planos|plano|estudio de seguridad|estudi de seguretat|presupuesto|mediciones/i;
+
+export async function fetchPliegosText(pliegos, expediente) {
+  const pdfs = pliegos.filter(p => {
+    if (NON_PDF_EXT.test(p.nombre)) { console.log(`skipping non-PDF pliego for ${p.nombre}: unsupported extension`); return false; }
+    return true;
+  });
+  const core = pdfs.filter(p => !BULKY_DOC.test(p.nombre));
+  const bulky = pdfs.filter(p => BULKY_DOC.test(p.nombre));
+  const parts = [], failed = [];
+  const fetchAll = async (list, timeoutMs) => {
+    for (const p of list) {
+      try {
+        const part = await fetchOnePliego(p, { timeoutMs });
+        if (part) parts.push(part);
+      } catch (e) {
+        failed.push(`${p.nombre}: ${e.message}`);
+      }
+      await new Promise(r => setTimeout(r, PLIEGO_THROTTLE_MS));
     }
-    try {
-      const part = await fetchOnePliego(p);
-      if (part) parts.push(part);
-    } catch (e) {
-      alert('fetch_pliego', `expediente ${expediente} ${p.nombre}: ${e.message}`);
-    }
-    await new Promise(r => setTimeout(r, PLIEGO_THROTTLE_MS));
+  };
+  await fetchAll(core, 60000);
+  if (!parts.length && bulky.length) await fetchAll(bulky, 120000);
+  // One alert per licitación, and only when it ended up with no document text at all - a
+  // failed annex next to a readable PCAP loses nothing the summary needs.
+  if (!parts.length && failed.length) {
+    alert('fetch_pliego', `expediente ${expediente}: no document text (${failed.length} failed) - ${failed.join(' | ').slice(0, 1500)}`);
   }
   const joined = parts.join('\n\n');
   return joined ? joined.slice(0, MAX_RAW_TEXT) : null;
