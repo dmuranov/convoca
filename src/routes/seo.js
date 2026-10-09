@@ -196,7 +196,7 @@ seoRouter.get('/subvenciones/:slugId', (req, res, next) => {
   const m = /^(.*)-(\d+)$/.exec(req.params.slugId);
   if (!m) return next();
   const g = db.prepare(`
-    SELECT gr.*, e.entity_types, e.territory_scope
+    SELECT gr.*, e.entity_types, e.applicant_v, e.territory_scope
     FROM grant_row gr LEFT JOIN grant_eligibility e ON e.grant_id = gr.id
     WHERE gr.bdns_ref = ? AND gr.published = 1`).get(m[2]);
   if (!g) return next();

@@ -143,7 +143,7 @@ const OPEN = db.prepare(`
          g.ai_summary, g.plain_explainer, g.amount_max, g.budget_total, g.source_url, g.is_rolling, g.beneficiarios_bdns,
          g.deadline_date AS deadline,
          CASE WHEN g.deadline_source = 'computed' AND g.deadline_confirmed = 0 THEN 1 ELSE 0 END AS deadline_estimated,
-         e.entity_types, e.funds_what, e.territory_scope
+         e.entity_types, e.applicant_v, e.funds_what, e.territory_scope
   FROM grant_row g LEFT JOIN grant_eligibility e ON e.grant_id = g.id
   WHERE g.published = 1 AND g.status = 'OPEN'`);
 

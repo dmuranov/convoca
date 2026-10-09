@@ -6,6 +6,8 @@
 // read like the fair itself - and hundreds of indexed pages were direct awards or long-closed calls
 // nobody could apply to. So: say it is a subsidy and who gives it, and keep out of the index what
 // cannot help a searcher.
+import { APPLICANT_LABELS } from './applicants.js';
+
 const eur = (n) => `${Number(n).toLocaleString('es-ES')} €`;
 
 // Days a closed call stays indexed after its deadline (people still search a call that just closed;
@@ -107,8 +109,12 @@ const BDNS_WHO = {
 };
 const parse = (s, d) => { try { return s ? JSON.parse(s) : d; } catch { return d; } };
 
-// Short label for the page's summary box.
+// Short label for the page's summary box. Categories from the full list (applicant_v = 2,
+// src/applicants.js) are the most precise - "Estudiantes", "Agricultores y ganaderos"; then
+// BDNS's own types; then the plain-language sentence; the old village-only list last.
 export function whoCanApplyShort(g, entityLabels = {}) {
+  const v2 = Number(g.applicant_v) === 2 ? parse(g.entity_types, []).filter(t => t !== 'Otro') : [];
+  if (v2.length) return [...new Set(v2.map(t => APPLICANT_LABELS[t] || t))].join(' · ');
   const bdns = parse(g.beneficiarios_bdns, []).map(t => BDNS_WHO[t] || null).filter(Boolean);
   if (bdns.length) return [...new Set(bdns)].join(' · ');
   const sentence = parse(g.plain_explainer, null)?.quien_puede?.trim();

@@ -32,6 +32,10 @@ for (const [name, decl] of [['ccaa', 'TEXT'], ['published_at', 'TEXT']]) {
   if (!licCols.has(name)) db.exec(`ALTER TABLE licitacion_row ADD COLUMN ${name} ${decl}`);
 }
 
+// grant_eligibility.applicant_v = 2: entity_types chosen from the full list (src/applicants.js),
+// not the original village-only one - only then are they shown as "Quién puede pedirla".
+const eligCols = new Set(db.prepare('PRAGMA table_info(grant_eligibility)').all().map(c => c.name));
+if (!eligCols.has('applicant_v')) db.exec('ALTER TABLE grant_eligibility ADD COLUMN applicant_v INTEGER');
 db.exec('CREATE INDEX IF NOT EXISTS idx_grant_published_at ON grant_row(published_at)');
 db.exec('CREATE INDEX IF NOT EXISTS idx_licitacion_published_at ON licitacion_row(published_at)');
 

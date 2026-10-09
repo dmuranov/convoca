@@ -12,6 +12,7 @@ import { territoryFromRegiones } from './regions.js';
 import { municipioFromBody } from '../municipios.js';
 import { anthropic, MODEL } from '../llm.js';
 import { suggestMatches } from './match.js';
+import { APPLICANT_TYPES, APPLICANT_DESCRIPTION } from '../applicants.js';
 
 const require = createRequire(import.meta.url);
 const pdfParse = require('pdf-parse');
@@ -213,7 +214,8 @@ export const ELIGIBILITY_SCHEMA = {
         },
       },
     },
-    entity_types: { type: 'array', items: { type: 'string', enum: ['Ayuntamiento', 'Junta_Vecinal', 'Asociacion', 'Club_Deportivo', 'AMPA', 'Otro'] } },
+    // People and businesses too (src/applicants.js): the village-only list labelled a LEADER grant for pymes 'Asociaciones'.
+    entity_types: { type: 'array', description: APPLICANT_DESCRIPTION, items: { type: 'string', enum: APPLICANT_TYPES } },
     funds_what: { type: 'array', items: { type: 'string' }, description: 'p.ej. obra, mobiliario, actividad, equipamiento, contratación' },
     territory_scope: { type: 'string', description: 'provincia / comarca / CCAA / municipio concreto' },
     pop_min: { type: ['integer', 'null'] },
@@ -347,8 +349,8 @@ export function applyAiResult(grantId, bdnsRef, ai) {
   // and a plain INSERT would leave a second row that duplicates the grant in every
   // LEFT JOIN behind the public list and the panel.
   db.prepare('DELETE FROM grant_eligibility WHERE grant_id = ?').run(grantId);
-  db.prepare(`INSERT INTO grant_eligibility (id, grant_id, entity_types, pop_min, pop_max, territory_scope, funds_what, notes)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
+  db.prepare(`INSERT INTO grant_eligibility (id, grant_id, entity_types, pop_min, pop_max, territory_scope, funds_what, notes, applicant_v)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, 2)`)
     .run(uuid(), grantId, JSON.stringify(ai.entity_types || []), ai.pop_min ?? null, ai.pop_max ?? null,
       ai.territory_scope || null, JSON.stringify(ai.funds_what || []), null);
   suggestMatches(grantId);

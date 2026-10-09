@@ -156,8 +156,8 @@ function applyResult(grantId, ai) {
   // One eligibility row per grant - a plain INSERT would duplicate the grant in every
   // LEFT JOIN behind the public list.
   db.prepare('DELETE FROM grant_eligibility WHERE grant_id = ?').run(grantId);
-  db.prepare(`INSERT INTO grant_eligibility (id, grant_id, entity_types, pop_min, pop_max, territory_scope, funds_what, notes)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
+  db.prepare(`INSERT INTO grant_eligibility (id, grant_id, entity_types, pop_min, pop_max, territory_scope, funds_what, notes, applicant_v)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, 2)`)
     .run(uuid(), grantId, JSON.stringify(ai.entity_types || []), ai.pop_min ?? null, ai.pop_max ?? null,
       ai.territory_scope || null, JSON.stringify(ai.funds_what || []), null);
   suggestMatches(grantId);
