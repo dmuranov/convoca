@@ -80,7 +80,7 @@ export function placeFromText(message) {
     // council's grants count too (a village elsewhere in the province would name the village).
     const label = prov[1].split('/')[0];
     const capital = MUNICIPIOS.find(m => m.province === prov[1] && fold(m.name) === fold(label));
-    return { ccaa: PROVINCE_CCAA.get(prov[1]), province: prov[1], name: capital ? capital.name : null, label };
+    return { ccaa: PROVINCE_CCAA.get(prov[1]), province: prov[1], name: capital ? capital.name : null, label, fromProvince: true };
   }
   for (const [alias, ccaa] of CCAA_ALIASES) if (has(text, alias)) return { ccaa, province: null, name: null, label: ccaa };
   return null;
@@ -134,9 +134,14 @@ function inTerritory(g, place) {
   if (g.region === NATIONWIDE) return true;
   if (g.region !== place.ccaa) return false;
   if (place.province && g.province && g.province !== place.province) return false;
-  if (g.municipality) return !!place.name && g.municipality === place.name;
-  return true;
+  if (!g.municipality || g.municipality === place.name) return true;
+  // One town's own grant. When the question names a region or a province (not a town), those
+  // are real leads - "clubes deportivos galicia" has four, from Boiro, Malpica, Narón and Baiona -
+  // so they count, ranked last and marked "solo para <town>". A named town never sees another's.
+  return !place.name || !!place.fromProvince;
 }
+// The grant is for one municipality and we don't know the asker is from there.
+export const onlyForOtherTown = (g, place) => !!g.municipality && (!place?.name || place.fromProvince) && g.municipality !== place?.name;
 
 const OPEN = db.prepare(`
   SELECT g.id, g.bdns_ref, g.title, g.plain_title, g.granting_body, g.region, g.province, g.municipality, g.category,
@@ -202,10 +207,12 @@ export function searchGrants(message, { place = null, section = null, groups = n
   // Closest first: the town's own grants, then its province's, then its region's, then nationwide.
   // ("subvenciones ourense" listed 29 nationwide training courses before anything from Ourense.)
   const tier = (g) => !place ? 0
+    : onlyForOtherTown(g, place) ? -1
     : place.name && g.municipality === place.name ? 3
     : place.province && g.province === place.province ? 2
     : g.region === place.ccaa ? 1 : 0;
   scored.sort((a, b) => b.score - a.score || tier(b.g) - tier(a.g)
     || String(a.g.deadline || '9999').localeCompare(String(b.g.deadline || '9999')));
+  for (const x of scored) x.g.only_town = onlyForOtherTown(x.g, place) ? x.g.municipality : null;
   return { place, business, fallback, terms: terms.map(t => t.word), total: scored.length, grants: scored.map(x => x.g) };
 }

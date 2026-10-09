@@ -186,7 +186,7 @@ const CHAT_SHOW = Number(process.env.CHAT_SHOW || 8);
 function formatForChat(rows) {
   return rows.map((g, i) =>
     `[${i + 1}] ${g.plain_title || g.title}\n  Órgano: ${g.granting_body || 'n/d'}\n  Resumen: ${g.ai_summary || 'n/d'}\n` +
-    `  Territorio: ${[g.region, g.province, g.municipality].filter(Boolean).join(' / ') || 'n/d'}\n` +
+    `  Territorio: ${[g.region, g.province, g.municipality].filter(Boolean).join(' / ') || 'n/d'}${g.only_town ? ` (SOLO para vecinos o entidades de ${g.only_town})` : ''}\n` +
     `  Quién puede pedirla: ${eligibilityForChat(g).who.slice(0, 400)}\n` +
     (eligibilityForChat(g).notCovered ? `  No cubre: ${eligibilityForChat(g).notCovered.slice(0, 400)}\n` : '') +
     `  Financia: ${g.funds_what || '[]'} | Ámbito: ${g.territory_scope || 'n/d'}\n` +
@@ -227,6 +227,7 @@ Reglas estrictas:
 - Si el RESULTADO dice que ninguna es específica del tema, dilo así y presenta las de negocios de la zona como alternativa.
 - Si una convocatoria tiene "No cubre" y eso afecta a lo que quiere hacer quien pregunta, avísale con claridad.
 - Si las encontradas son ayudas generales para empresas y ninguna es específica de su actividad (por ejemplo, ninguna agraria para quien quiere cultivar), díselo claramente.
+- Si una convocatoria dice "SOLO para vecinos o entidades de X", dilo así: solo le sirve si es de X. Si todas son así, di que son de ayuntamientos concretos y nómbralos.
 - Solo puedes citar las convocatorias del listado que recibes. Jamás inventes una convocatoria ni recomiendes ayudas de memoria.
 - Si alguien pregunta por montar o ampliar un negocio en un pueblo, recuerda que la vía habitual son las ayudas LEADER del Grupo de Acción Local (GAL) de su comarca. Si tras el listado hay un bloque "GAL LEADER DE LA ZONA", úsalo: nombra ese GAL con sus datos de contacto tal cual vienen, y dile que conviene contactarles antes de gastar. Sigue exactamente lo que diga ese bloque: si dice que no tenemos el dato o que no hay GAL, no nombres ninguno. Nunca deduzcas de memoria qué GAL le corresponde a un pueblo.
 - PROHIBIDO calcular, estimar o deducir plazos o fechas. Solo puedes repetir literalmente el campo "Plazo" del listado. Si dice "pendiente de confirmar", di exactamente eso. Si la fecha lleva asterisco (*), repite siempre también el aviso de fecha estimada que la acompaña.
