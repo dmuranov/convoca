@@ -10,6 +10,7 @@
 //      energy grant - so "he encontrado N" counts only real matches.
 // Any AI step that fails falls back to the plain keyword search, so the chat never breaks.
 import { anthropic, MODEL } from './llm.js';
+import { db } from './db.js';
 import { searchGrants, placeFromText } from './chatSearch.js';
 import { eligibilityForChat } from './grantSeo.js';
 
@@ -45,7 +46,7 @@ const CHECK_SCHEMA = {
   properties: { relevant: { type: 'array', items: { type: 'integer' }, description: 'Números [n] de las convocatorias que responden de verdad a la pregunta.' } },
 };
 const CHECK_SYSTEM = `Recibes una pregunta y una lista numerada de convocatorias abiertas. Devuelve SOLO los números de las que tratan de verdad de lo que se pregunta.
-REGLA PRIORITARIA, por encima de todas las demás: si el campo "No cubre" de una convocatoria excluye la actividad de quien pregunta, descártala SIEMPRE, aunque todo lo demás encaje. Ejemplo: "no se subvencionan proyectos de producción agrícola primaria" excluye a quien quiere cultivar microgreens, hortalizas, frutas o setas (eso es producción agrícola primaria); no excluiría a quien solo los transforma o los vende.
+REGLA PRIORITARIA, por encima de todas las demás: si "No cubre" o "No cubre (texto literal de las bases)" de una convocatoria excluye la actividad de quien pregunta, descártala SIEMPRE, aunque todo lo demás encaje. Ejemplo: "no se subvencionan proyectos de producción agrícola primaria" excluye a quien quiere cultivar microgreens, hortalizas, frutas o setas (eso es producción agrícola primaria); no excluiría a quien solo los transforma o los vende.
 - Juzga por el TEMA de la convocatoria (su título y resumen): tiene que ser aquello que se busca. Una convocatoria que solo menciona de pasada una palabra de la pregunta no cuenta.
 - El territorio ya está filtrado: no descartes ninguna por el lugar.
 - El campo "Quién puede pedirla" sale de una extracción automática y puede estar mal: si el tema no encaja, descártala aunque ese campo incluya a quien pregunta; si el tema encaja, inclúyela aunque no sepas si quien pregunta cumple todos los requisitos.
@@ -75,13 +76,31 @@ function placeFromUnderstanding(u) {
   return null;
 }
 
-const summaryLine = (g) => {
+// The exclusion clauses straight from the bases. The AI summary's "no cubre" can miss them: ADRI
+// Páramos y Valles' bases exclude "las operaciones ... dentro del sector de la producción agrícola
+// primaria" while its summary listed only tourist flats and services to third parties.
+const EXCLUSION_RE = /(se excluye[n]?|quedan? excluid[oa]s?|exclu[ií]d[oa]s? de (la|estas) ayudas?|no ser[aá]n? subvencionables?|no se subvencionar[aá]n?|no podr[aá]n? (ser beneficiari|acoger)|no son subvencionables)/gi;
+export function exclusionExcerpt(rawText, max = 700) {
+  const t = String(rawText || '').replace(/\s+/g, ' ');
+  const parts = [];
+  for (const m of t.matchAll(EXCLUSION_RE)) {
+    parts.push(t.slice(Math.max(0, m.index - 60), m.index + 260).trim());
+    if (parts.join(' … ').length > max) break;
+  }
+  return parts.join(' … ').slice(0, max);
+}
+const rawTextOf = (ids) => ids.length ? new Map(db.prepare(
+  `SELECT id, raw_text FROM grant_row WHERE id IN (${ids.map(() => '?').join(',')})`).all(...ids).map(r => [r.id, r.raw_text])) : new Map();
+
+const summaryLine = (g, raw) => {
   const { who, notCovered } = eligibilityForChat(g);
+  const fromBases = exclusionExcerpt(raw);
   return [
     `${g.plain_title || g.title}`,
     `   Resumen: ${(g.ai_summary || '').slice(0, 260)}`,
     `   Quién puede pedirla: ${who.slice(0, 300)} | Ámbito: ${[g.region, g.province, g.municipality].filter(Boolean).join(' / ') || 'n/d'}`,
     notCovered ? `   No cubre: ${notCovered.slice(0, 300)}` : '',
+    fromBases ? `   No cubre (texto literal de las bases): ${fromBases}` : '',
   ].filter(Boolean).join('\n');
 };
 
@@ -117,14 +136,15 @@ export async function understandAndSearch(message, past = [], { place: pickedPla
 
   // Check the candidates; keep only the real matches.
   try {
-    const list = candidates.map((g, i) => `[${i + 1}] ${summaryLine(g)}`).join('\n\n');
+    const raws = rawTextOf(candidates.map(g => g.id));
+    const list = candidates.map((g, i) => `[${i + 1}] ${summaryLine(g, raws.get(g.id))}`).join('\n\n');
     const who = u.applicant ? ` (quien pregunta: ${u.applicant})` : '';
     const concepts = groups.map(g => g.slice(0, 4).join('/')).join(' + ') || 'cualquier ayuda útil para su negocio';
     const { relevant = [] } = await askJson(CHECK_SYSTEM,
       `Pregunta: ${message}${who}${u.activity ? `\nActividad de quien pregunta: ${u.activity}` : ''}\nConceptos buscados: ${concepts}${business ? '\nQuien pregunta tiene o quiere montar un negocio.' : ''}\n\nConvocatorias:\n${list}`, CHECK_SCHEMA, 400);
     const keep = [...new Set(relevant)].filter(n => n >= 1 && n <= candidates.length).sort((a, b) => a - b);
     const grants = keep.map(n => candidates[n - 1]);
-    return { ...found, grants, total: grants.length, fallback: null, checked: candidates.length, applicant: u.applicant || null, ai: true };
+    return { ...found, grants, total: grants.length, fallback: null, checked: candidates.length, applicant: u.applicant || null, activity: u.activity || null, ai: true };
   } catch (e) {
     console.warn('chatAI: check failed:', e.message);
     return { ...found, applicant: u.applicant || null, ai: true };

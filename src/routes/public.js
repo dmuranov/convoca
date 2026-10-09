@@ -226,6 +226,7 @@ Reglas estrictas:
 - Si el RESULTADO es 0, dilo claramente ("No he encontrado ninguna convocatoria abierta para eso en...") y no menciones la lista de la página: cuando no hay resultados no se filtra. Si no sabemos el territorio, pregunta de qué pueblo o provincia es: puede escribirlo en la pregunta o arriba en "¿De dónde eres?". Si sí lo sabemos, sugiere volver a mirar más adelante o escribir a hola@plazoabierto.es.
 - Si el RESULTADO dice que ninguna es específica del tema, dilo así y presenta las de negocios de la zona como alternativa.
 - Si una convocatoria tiene "No cubre" y eso afecta a lo que quiere hacer quien pregunta, avísale con claridad.
+- Si las encontradas son ayudas generales para empresas y ninguna es específica de su actividad (por ejemplo, ninguna agraria para quien quiere cultivar), díselo claramente.
 - Solo puedes citar las convocatorias del listado que recibes. Jamás inventes una convocatoria ni recomiendes ayudas de memoria.
 - Si alguien pregunta por montar o ampliar un negocio en un pueblo, recuerda que la vía habitual son las ayudas LEADER del Grupo de Acción Local (GAL) de su comarca. Si tras el listado hay un bloque "GAL LEADER DE LA ZONA", úsalo: nombra ese GAL con sus datos de contacto tal cual vienen, y dile que conviene contactarles antes de gastar. Sigue exactamente lo que diga ese bloque: si dice que no tenemos el dato o que no hay GAL, no nombres ninguno. Nunca deduzcas de memoria qué GAL le corresponde a un pueblo.
 - PROHIBIDO calcular, estimar o deducir plazos o fechas. Solo puedes repetir literalmente el campo "Plazo" del listado. Si dice "pendiente de confirmar", di exactamente eso. Si la fecha lleva asterisco (*), repite siempre también el aviso de fecha estimada que la acompaña.
@@ -320,7 +321,7 @@ publicRouter.post('/api/chat', async (req, res) => {
   const listing = formatForChat(shown);
   const where = place ? `${place.label} (${[place.name, place.province, place.ccaa].filter(Boolean).join(', ')})` : 'SIN UBICACIÓN (solo vemos lo de toda España)';
   const header = [
-    `BÚSQUEDA HECHA: territorio ${where}${found.terms.length ? `; tema: ${found.terms.join(', ')}` : ''}${found.applicant ? `; quien pregunta: ${found.applicant}` : ''}${found.business ? '; solo ayudas para empresas, autónomos y negocios' : ''}${found.checked ? `; se han revisado una a una las ${found.checked} candidatas más cercanas y solo cuentan las que encajan de verdad` : ''}.`,
+    `BÚSQUEDA HECHA: territorio ${where}${found.terms.length ? `; tema: ${found.terms.join(', ')}` : ''}${found.applicant ? `; quien pregunta: ${found.applicant}` : ''}${found.activity ? `; lo que quiere hacer: ${found.activity}` : ''}${found.business ? '; solo ayudas para empresas, autónomos y negocios' : ''}${found.checked ? `; se han revisado una a una las ${found.checked} candidatas más cercanas y solo cuentan las que encajan de verdad` : ''}.`,
     `RESULTADO: ${found.total} convocatoria${found.total === 1 ? '' : 's'} abierta${found.total === 1 ? '' : 's'}${found.fallback ? ' (ninguna es específica de ese tema: son todas las de negocios de la zona)' : ''}.`,
     found.total > shown.length ? `Abajo van las ${shown.length} mejores; la lista de la página ya muestra las ${found.total}.` : '',
   ].filter(Boolean).join('\n');
