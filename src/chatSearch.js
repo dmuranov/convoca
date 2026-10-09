@@ -149,12 +149,20 @@ const OPEN = db.prepare(`
 
 // -> { place, business, terms, total, grants (all matches, best first) }
 // `section: 'negocios'` (the Negocios page) always means business grants only.
-export function searchGrants(message, { place = null, section = null } = {}) {
-  const business = section === 'negocios' || isBusinessQuestion(message);
+// `groups` (from the AI reading of the question, src/chatAI.js): each group is one concept
+// with its related words ("energía" -> energética, renovable, autoconsumo, fotovoltaica...);
+// any of them counts, in title or summary. Without groups, the question's own words are used.
+export function searchGrants(message, { place = null, section = null, groups = null, business: forceBusiness = null } = {}) {
+  const business = section === 'negocios' || (forceBusiness ?? isBusinessQuestion(message));
   // The place's own words ("Huelva", "valenciana", "Medina de Pomar") are not the topic.
   const placeWords = new Set(place ? words([place.label, place.name, place.province, place.ccaa].join(' '))
     .flatMap(w => [w, w.replace(/a$/, 'o'), `${w}na`, `${w}no`]) : []);
-  const terms = topicTerms(message).filter(t => !placeWords.has(t.word) && !placeWords.has(t.word.replace(/n[ao]$/, '')));
+  const aiGroups = Array.isArray(groups) ? groups
+    .map(gr => [...new Set(gr.map(w => fold(w).trim()).filter(w => w.length > 2))])
+    .filter(gr => gr.length) : null;
+  const terms = aiGroups
+    ? aiGroups.map(gr => ({ word: gr[0], alts: [...new Set(gr.map(stem))], ai: true }))
+    : topicTerms(message).filter(t => !placeWords.has(t.word) && !placeWords.has(t.word.replace(/n[ao]$/, '')));
   const pool = OPEN.all().filter(g => inTerritory(g, place) && (!business || isBusinessGrant(g)));
   let scored;
   let fallback = null;
@@ -171,7 +179,7 @@ export function searchGrants(message, { place = null, section = null } = {}) {
         // (in a summary, "equipamiento" or "animales" matched doctorates and livestock shows).
         const own = stem(t.word);
         if (t.alts.some(a => atWordStart(title, a))) { score += 2; hits++; }
-        else if (atWordStart(body, own)) { score += 1; hits++; }
+        else if (t.ai ? t.alts.some(a => atWordStart(body, a)) : atWordStart(body, own)) { score += 1; hits++; }
       }
       return { g, score, hits };
     }).filter(x => x.score > 0);
