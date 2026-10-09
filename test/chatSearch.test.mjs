@@ -67,3 +67,17 @@ test('nothing found is zero, not a guess', () => {
   const r = searchGrants('ayudas para protectoras de animales', { place: placeFromText('en Huelva') });
   assert.equal(r.total, 0);
 });
+
+test('a town at the end of the query counts, a bank name does not', () => {
+  assert.equal(placeFromText('tramitacion de subvenciones requena').name, 'Requena');
+  assert.equal(placeFromText('becas santander doctorado'), null);
+});
+
+test('words for who gives the grant are not the topic; the closest grants come first', () => {
+  grant({ title: 'Ayudas generales de Navarra', region: 'Navarra' });
+  const nav = searchGrants('subvenciones gobierno de navarra', { place: placeFromText('subvenciones gobierno de navarra') });
+  assert.ok(nav.total >= 1, 'gobierno is not a topic word');
+  grant({ title: 'Ayudas municipales de Burgos', region: 'Castilla y León', province: 'Burgos', municipality: 'Burgos' });
+  const bu = searchGrants('subvenciones burgos', { place: placeFromText('subvenciones burgos') });
+  assert.equal(bu.grants[0].municipality, 'Burgos', 'the town first, then province, region, nationwide');
+});

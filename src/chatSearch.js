@@ -65,6 +65,16 @@ export function placeFromText(message) {
       if (muni && (!prov || muni.province === prov[1])) return { ccaa: muni.ccaa, province: muni.province, name: muni.name, label: muni.name };
     }
   }
+  // A town at the very end with no preposition: "tramitacion de subvenciones requena". Only at the
+  // end (where people put the place) and only long names, so "becas santander doctorado" stays
+  // about the bank, not the city.
+  const tail = text.trim().split(/\s+/);
+  for (let n = Math.min(3, tail.length); n >= 1; n--) {
+    const cand = tail.slice(-n).join(' ');
+    if (cand.length < 5 || NOT_PLACES.has(cand) || STOP.has(cand) || PROVINCE_ALIASES.has(cand) || CCAA_ALIASES.has(cand)) continue;
+    const muni = findMunicipio(cand);
+    if (muni && (!prov || muni.province === prov[1])) return { ccaa: muni.ccaa, province: muni.province, name: muni.name, label: muni.name };
+  }
   if (prov) {
     // "Burgos", "Huelva", "Albacete": most people naming the capital live in it, so its own
     // council's grants count too (a village elsewhere in the province would name the village).
@@ -84,7 +94,14 @@ const STOP = new Set(('a al algo alguna alguno algun ante bajo como con contra c
   'busco buscando quiero queremos necesito necesitamos puedo podemos pedir solicitar solicitud existe existen hay disponibles ' +
   'abiertas abierta abierto abiertos plazo plazos informacion vivo somos estamos zona pueblo ciudad provincia comunidad region ' +
   'comprar compra pagar pago conseguir sacar sacarme tener hacer montar arreglar mejorar cambiar poner abrir ampliar estudiar ' +
-  'empresa empresas pyme pymes autonomo autonoma autonomos negocio negocios emprender emprendedor emprendedora emprendedores').split(' '));
+  'empresa empresas pyme pymes autonomo autonoma autonomos negocio negocios emprender emprendedor emprendedora emprendedores ' +
+  // Who gives it or how it is processed, not what it is for: "subvenciones gobierno de navarra",
+  // "tramitacion de subvenciones requena", "beca ... ayuda economica".
+  'gobierno junta xunta generalitat govern diputacion ayuntamiento concello ajuntament cabildo consell ministerio estado ' +
+  'publica publicas publico publicos oficial oficiales tramitacion tramitar tramite tramites gestion gestionar presentar ' +
+  'economica economicas economico economicos').split(' '));
+// Names that are towns but almost always mean something else in a grants search.
+const NOT_PLACES = new Set(['santander', 'erasmus', 'leader', 'europa']);
 const BUSINESS = /\b(empresa|empresas|pyme|pymes|autonom[oa]s?|negocios?|emprend\w*|comercio|tienda|startup|sociedad limitada|bar|restaurante|hostel\w*|casa rural|alojamiento|abrir un|montar un)\b/;
 // Different words for the same thing. Each topic word also matches its stem.
 const SYNONYMS = {
@@ -174,7 +191,13 @@ export function searchGrants(message, { place = null, section = null } = {}) {
       fallback = 'business';
     }
   }
-  scored.sort((a, b) => b.score - a.score
+  // Closest first: the town's own grants, then its province's, then its region's, then nationwide.
+  // ("subvenciones ourense" listed 29 nationwide training courses before anything from Ourense.)
+  const tier = (g) => !place ? 0
+    : place.name && g.municipality === place.name ? 3
+    : place.province && g.province === place.province ? 2
+    : g.region === place.ccaa ? 1 : 0;
+  scored.sort((a, b) => b.score - a.score || tier(b.g) - tier(a.g)
     || String(a.g.deadline || '9999').localeCompare(String(b.g.deadline || '9999')));
   return { place, business, fallback, terms: terms.map(t => t.word), total: scored.length, grants: scored.map(x => x.g) };
 }
