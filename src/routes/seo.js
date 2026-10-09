@@ -10,7 +10,7 @@ import { BASE_URL, BENEFICIARIO_TYPES as TYPES, esc, eur, slugify, grantPath, da
 import { NATIONWIDE } from '../ingest/regions.js';
 import { alertBox, ALERT_ASSETS } from '../seoUtils.js';
 import { isBusinessGrant } from '../negocios.js';
-import { grantSeoTitle, grantSeoDescription, isGrantIndexable } from '../grantSeo.js';
+import { grantSeoTitle, grantSeoDescription, isGrantIndexable, whoCanApplyShort } from '../grantSeo.js';
 
 export const seoRouter = Router();
 
@@ -34,8 +34,8 @@ function renderPage(g) {
   const amount = g.amount_max ? `hasta ${eur(g.amount_max)}` : (g.budget_total ? `bolsa de ${eur(g.budget_total)}` : 'según bases');
   const description = grantSeoDescription(g);
 
-  const entityTypes = JSON.parse(g.entity_types || '[]').map(t => TYPES[t] || t).join(', ') || null;
-  const quienPuede = entityTypes || g.territory_scope || 'Consulta las bases oficiales';
+  // BDNS's own beneficiary types first: the AI entity list cannot say 'pymes' or 'particulares'.
+  const quienPuede = whoCanApplyShort(g, TYPES) || g.territory_scope || 'Consulta las bases oficiales';
 
   let explainer = null;
   try { explainer = g.plain_explainer ? JSON.parse(g.plain_explainer) : null; } catch { explainer = null; }

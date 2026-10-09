@@ -140,7 +140,7 @@ function inTerritory(g, place) {
 
 const OPEN = db.prepare(`
   SELECT g.id, g.bdns_ref, g.title, g.plain_title, g.granting_body, g.region, g.province, g.municipality, g.category,
-         g.ai_summary, g.amount_max, g.budget_total, g.source_url, g.is_rolling, g.beneficiarios_bdns,
+         g.ai_summary, g.plain_explainer, g.amount_max, g.budget_total, g.source_url, g.is_rolling, g.beneficiarios_bdns,
          g.deadline_date AS deadline,
          CASE WHEN g.deadline_source = 'computed' AND g.deadline_confirmed = 0 THEN 1 ELSE 0 END AS deadline_estimated,
          e.entity_types, e.funds_what, e.territory_scope

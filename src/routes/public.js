@@ -14,6 +14,7 @@ import { notifyOperator } from '../notify.js';
 import { galContext, galLookup } from '../gal.js';
 import { isBusinessGrant, isLeaderGrant } from '../negocios.js';
 import { understandAndSearch } from '../chatAI.js';
+import { eligibilityForChat } from '../grantSeo.js';
 
 export const publicRouter = Router();
 
@@ -186,7 +187,9 @@ function formatForChat(rows) {
   return rows.map((g, i) =>
     `[${i + 1}] ${g.plain_title || g.title}\n  Órgano: ${g.granting_body || 'n/d'}\n  Resumen: ${g.ai_summary || 'n/d'}\n` +
     `  Territorio: ${[g.region, g.province, g.municipality].filter(Boolean).join(' / ') || 'n/d'}\n` +
-    `  Beneficiarios: ${g.entity_types || '[]'} | Financia: ${g.funds_what || '[]'} | Ámbito: ${g.territory_scope || 'n/d'}\n` +
+    `  Quién puede pedirla: ${eligibilityForChat(g).who.slice(0, 400)}\n` +
+    (eligibilityForChat(g).notCovered ? `  No cubre: ${eligibilityForChat(g).notCovered.slice(0, 400)}\n` : '') +
+    `  Financia: ${g.funds_what || '[]'} | Ámbito: ${g.territory_scope || 'n/d'}\n` +
     `  Importe: ${g.amount_max ? `hasta ${g.amount_max} €` : g.budget_total ? `${g.budget_total} € en total` : 'según bases'}\n` +
     `  Plazo: ${g.deadline
       ? (g.deadline_estimated
@@ -222,6 +225,7 @@ Reglas estrictas:
 - Empieza diciendo cuántas has encontrado, con el número exacto del RESULTADO (por ejemplo: "He encontrado 3 ayudas abiertas para pymes en Segovia; te las he dejado en la lista de la página."). Si son más de las que ves, recomienda las mejores (máximo 3) y di que el resto está en la lista.
 - Si el RESULTADO es 0, dilo claramente ("No he encontrado ninguna convocatoria abierta para eso en...") y no menciones la lista de la página: cuando no hay resultados no se filtra. Si no sabemos el territorio, pregunta de qué pueblo o provincia es: puede escribirlo en la pregunta o arriba en "¿De dónde eres?". Si sí lo sabemos, sugiere volver a mirar más adelante o escribir a hola@plazoabierto.es.
 - Si el RESULTADO dice que ninguna es específica del tema, dilo así y presenta las de negocios de la zona como alternativa.
+- Si una convocatoria tiene "No cubre" y eso afecta a lo que quiere hacer quien pregunta, avísale con claridad.
 - Solo puedes citar las convocatorias del listado que recibes. Jamás inventes una convocatoria ni recomiendes ayudas de memoria.
 - Si alguien pregunta por montar o ampliar un negocio en un pueblo, recuerda que la vía habitual son las ayudas LEADER del Grupo de Acción Local (GAL) de su comarca. Si tras el listado hay un bloque "GAL LEADER DE LA ZONA", úsalo: nombra ese GAL con sus datos de contacto tal cual vienen, y dile que conviene contactarles antes de gastar. Sigue exactamente lo que diga ese bloque: si dice que no tenemos el dato o que no hay GAL, no nombres ninguno. Nunca deduzcas de memoria qué GAL le corresponde a un pueblo.
 - PROHIBIDO calcular, estimar o deducir plazos o fechas. Solo puedes repetir literalmente el campo "Plazo" del listado. Si dice "pendiente de confirmar", di exactamente eso. Si la fecha lleva asterisco (*), repite siempre también el aviso de fecha estimada que la acompaña.

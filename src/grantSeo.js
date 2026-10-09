@@ -94,3 +94,34 @@ export function grantSeoDescription(g) {
   return `${kind}${giver ? ` ${giver.de} ${giver.name}` : ''}: ${head}. ${amount} ${when} Quién puede pedirla y cómo, en castellano llano.`
     .replace(/\s+/g, ' ').trim();
 }
+
+// Who can apply, in plain words. The AI summary's entity list was built for village bodies
+// (ayuntamientos, asociaciones, clubes, AMPAs...) and has no option for businesses, the
+// self-employed or private people, so a LEADER grant for pymes read "Asociaciones". BDNS's own
+// beneficiary types come first; the plain-language sentence from the bases next.
+const BDNS_WHO = {
+  'PYME Y PERSONAS FÍSICAS QUE DESARROLLAN ACTIVIDAD ECONÓMICA': 'Pymes y autónomos',
+  'GRAN EMPRESA': 'Grandes empresas',
+  'PERSONAS FÍSICAS QUE NO DESARROLLAN ACTIVIDAD ECONÓMICA': 'Particulares',
+  'PERSONAS JURÍDICAS QUE NO DESARROLLAN ACTIVIDAD ECONÓMICA': 'Asociaciones, fundaciones y otras entidades sin actividad económica',
+};
+const parse = (s, d) => { try { return s ? JSON.parse(s) : d; } catch { return d; } };
+
+// Short label for the page's summary box.
+export function whoCanApplyShort(g, entityLabels = {}) {
+  const bdns = parse(g.beneficiarios_bdns, []).map(t => BDNS_WHO[t] || null).filter(Boolean);
+  if (bdns.length) return [...new Set(bdns)].join(' · ');
+  const sentence = parse(g.plain_explainer, null)?.quien_puede?.trim();
+  if (sentence && !/^no se especifica/i.test(sentence)) return sentence.split(/(?<=\.)\s/)[0];
+  const types = parse(g.entity_types, []).map(t => entityLabels[t] || t);
+  return types.length ? types.join(', ') : null;
+}
+
+// Fuller text for the assistant: who can apply and what is excluded, from the bases.
+export function eligibilityForChat(g) {
+  const ex = parse(g.plain_explainer, null) || {};
+  const short = whoCanApplyShort(g);
+  const who = [short, ex.quien_puede && ex.quien_puede !== short ? ex.quien_puede : null].filter(Boolean).join(' — ');
+  const notCovered = ex.que_no_cubre && !/^no se especifica/i.test(ex.que_no_cubre) ? ex.que_no_cubre : null;
+  return { who: who || 'n/d', notCovered };
+}

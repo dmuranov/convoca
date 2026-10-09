@@ -11,13 +11,15 @@
 // Any AI step that fails falls back to the plain keyword search, so the chat never breaks.
 import { anthropic, MODEL } from './llm.js';
 import { searchGrants, placeFromText } from './chatSearch.js';
+import { eligibilityForChat } from './grantSeo.js';
 
 const CHECK_MAX = 40;   // candidates the check reads
 
 const UNDERSTAND_SCHEMA = {
   type: 'object', additionalProperties: false,
-  required: ['municipality', 'province', 'region', 'topic_groups', 'applicant', 'business'],
+  required: ['municipality', 'province', 'region', 'topic_groups', 'applicant', 'business', 'activity'],
   properties: {
+    activity: { type: 'string', description: 'Qué quiere hacer exactamente quien pregunta, y de qué tipo es: p. ej. "cultivar y vender microgreens: producción agrícola primaria", "abrir un bar: hostelería", "comprar un ordenador para estudiar". Vacío si no se sabe.' },
     municipality: { type: 'string', description: 'Municipio que nombra o del que habla el usuario, tal como se escribe en español. Vacío si no hay.' },
     province: { type: 'string', description: 'Provincia, si la nombra o se deduce sin duda del municipio. Vacío si no hay.' },
     region: { type: 'string', description: 'Comunidad autónoma, si la nombra o se deduce sin duda. Vacío si no hay.' },
@@ -43,10 +45,12 @@ const CHECK_SCHEMA = {
   properties: { relevant: { type: 'array', items: { type: 'integer' }, description: 'Números [n] de las convocatorias que responden de verdad a la pregunta.' } },
 };
 const CHECK_SYSTEM = `Recibes una pregunta y una lista numerada de convocatorias abiertas. Devuelve SOLO los números de las que tratan de verdad de lo que se pregunta.
+REGLA PRIORITARIA, por encima de todas las demás: si el campo "No cubre" de una convocatoria excluye la actividad de quien pregunta, descártala SIEMPRE, aunque todo lo demás encaje. Ejemplo: "no se subvencionan proyectos de producción agrícola primaria" excluye a quien quiere cultivar microgreens, hortalizas, frutas o setas (eso es producción agrícola primaria); no excluiría a quien solo los transforma o los vende.
 - Juzga por el TEMA de la convocatoria (su título y resumen): tiene que ser aquello que se busca. Una convocatoria que solo menciona de pasada una palabra de la pregunta no cuenta.
 - El territorio ya está filtrado: no descartes ninguna por el lugar.
 - El campo "Quién puede pedirla" sale de una extracción automática y puede estar mal: si el tema no encaja, descártala aunque ese campo incluya a quien pregunta; si el tema encaja, inclúyela aunque no sepas si quien pregunta cumple todos los requisitos.
 - Si la pregunta es de alguien con un negocio o que quiere montarlo, cuenta también toda convocatoria que le ayudaría a montarlo, ampliarlo o mantenerlo en ese territorio (locales, creación de empresas, LEADER, contratación, digitalización...), aunque no nombre su tipo de negocio.
+- Si el campo "No cubre" excluye la actividad de quien pregunta, descártala aunque el tema encaje (p. ej. "no se subvenciona la producción agrícola primaria" excluye a quien quiere cultivar microgreens, hortalizas o frutas; sí podría servirle si quiere transformarlos o venderlos).
 - En caso de duda razonable sobre el tema, inclúyela; descarta solo lo que claramente trata de otra cosa.
 - Si ninguna encaja, devuelve una lista vacía.`;
 
@@ -71,11 +75,15 @@ function placeFromUnderstanding(u) {
   return null;
 }
 
-const summaryLine = (g) => [
-  `${g.plain_title || g.title}`,
-  `   Resumen: ${(g.ai_summary || '').slice(0, 260)}`,
-  `   Quién puede pedirla: ${g.entity_types || 'n/d'} | Ámbito: ${[g.region, g.province, g.municipality].filter(Boolean).join(' / ') || 'n/d'}`,
-].join('\n');
+const summaryLine = (g) => {
+  const { who, notCovered } = eligibilityForChat(g);
+  return [
+    `${g.plain_title || g.title}`,
+    `   Resumen: ${(g.ai_summary || '').slice(0, 260)}`,
+    `   Quién puede pedirla: ${who.slice(0, 300)} | Ámbito: ${[g.region, g.province, g.municipality].filter(Boolean).join(' / ') || 'n/d'}`,
+    notCovered ? `   No cubre: ${notCovered.slice(0, 300)}` : '',
+  ].filter(Boolean).join('\n');
+};
 
 // -> same shape as searchGrants(): { place, business, fallback, terms, total, grants, ai }
 export async function understandAndSearch(message, past = [], { place: pickedPlace = null, section = null } = {}) {
@@ -113,7 +121,7 @@ export async function understandAndSearch(message, past = [], { place: pickedPla
     const who = u.applicant ? ` (quien pregunta: ${u.applicant})` : '';
     const concepts = groups.map(g => g.slice(0, 4).join('/')).join(' + ') || 'cualquier ayuda útil para su negocio';
     const { relevant = [] } = await askJson(CHECK_SYSTEM,
-      `Pregunta: ${message}${who}\nConceptos buscados: ${concepts}${business ? '\nQuien pregunta tiene o quiere montar un negocio.' : ''}\n\nConvocatorias:\n${list}`, CHECK_SCHEMA, 400);
+      `Pregunta: ${message}${who}${u.activity ? `\nActividad de quien pregunta: ${u.activity}` : ''}\nConceptos buscados: ${concepts}${business ? '\nQuien pregunta tiene o quiere montar un negocio.' : ''}\n\nConvocatorias:\n${list}`, CHECK_SCHEMA, 400);
     const keep = [...new Set(relevant)].filter(n => n >= 1 && n <= candidates.length).sort((a, b) => a - b);
     const grants = keep.map(n => candidates[n - 1]);
     return { ...found, grants, total: grants.length, fallback: null, checked: candidates.length, applicant: u.applicant || null, ai: true };
