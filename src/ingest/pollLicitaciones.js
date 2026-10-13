@@ -21,6 +21,7 @@ import { walkFeed } from './placsp.js';
 import { prepareEnrichment, contextFromRow, enrichBatch } from './enrichLicitacion.js';
 import { pingIndexNow } from '../indexnow.js';
 import { BASE_URL, licitacionPath } from '../seoUtils.js';
+import { publishOpenTenders } from '../publishReady.js';
 
 function pingPublishedAmong(prepared) {
   if (!prepared.length) return;
@@ -49,6 +50,8 @@ const MAX_PAGES = Number(process.env.PLACSP_MAX_PAGES || 15);
 // practice, not left at the original review-pacing values.
 const OPEN_TENDER_ESTADOS = ['licitacion', 'anuncio_previo', 'pendiente_adjudicacion'];
 const OPEN_TENDER_DRAIN_CAP = Number(process.env.OPEN_TENDER_DRAIN_CAP || 1000);
+// Tenders per Batch API submission (see flush() in runPoll for why it is chunked).
+const ENRICH_CHUNK = Number(process.env.PLACSP_ENRICH_CHUNK || 200);
 const HISTORICAL_DRAIN_CAP = Number(process.env.LICITACION_BACKLOG_CAP || 1000);
 // See poll.js for the reasoning: enriched===0 alone misses "40 of 50 failed", and a flat
 // batchFailed>0 would fire on the occasional single benign failure every normal day.
@@ -91,8 +94,19 @@ async function runPoll() {
     MAX_PAGES,
   );
 
-  const toEnrich = [];
-  let unchanged = 0, prepFailed = 0;
+  // Sent in chunks, not all at the end: holding a whole day's prepared tenders (thousands,
+  // up to 150k chars of pliego text each) hit pm2's 1.5 GB max_memory_restart every day from
+  // 2026-10-06, killing the poll before anything was sent - no summaries, nothing published.
+  let toEnrich = [];
+  let unchanged = 0, prepFailed = 0, enriched = 0, batchFailed = 0, sent = 0;
+  const flush = async () => {
+    if (!toEnrich.length) return;
+    const r = await enrichBatch(toEnrich);
+    enriched += r.enriched; batchFailed += r.failed; sent += toEnrich.length;
+    pingPublishedAmong(toEnrich);
+    publishOpenTenders();
+    toEnrich = [];
+  };
   // A tender whose estado changes inside the walked window appears more than once; the feed
   // is newest-first, so the first copy is the current one.
   const seenExp = new Set();
@@ -106,16 +120,16 @@ async function runPoll() {
       prepFailed++;
       alert('placsp_enrich', `expediente ${e.expediente}: ${err.message}`);
     }
+    if (toEnrich.length >= ENRICH_CHUNK) await flush();
   }
+  await flush();
 
-  const { enriched, failed: batchFailed } = await enrichBatch(toEnrich);
-  pingPublishedAmong(toEnrich);
-  console.log(`placsp poll done: ${enriched} enriched (awaiting publish), ${unchanged} unchanged, `
+  console.log(`placsp poll done: ${enriched} enriched, ${unchanged} unchanged, `
     + `${prepFailed + batchFailed} failed (of ${entries.length} entries seen)`);
   // See poll.js: ratio, not enriched===0 - a batch where 40 of 50 fail is exactly the
   // failure this exists to catch, and enriched===0 alone would miss it.
-  if (toEnrich.length > 0 && batchFailed / toEnrich.length > BATCH_FAILURE_ALERT_RATIO) {
-    alert('poll_batch_failed', `${batchFailed} of ${toEnrich.length} licitación(es) `
+  if (sent > 0 && batchFailed / sent > BATCH_FAILURE_ALERT_RATIO) {
+    alert('poll_batch_failed', `${batchFailed} of ${sent} licitación(es) `
       + `submitted for enrichment failed - check Anthropic API status/credentials before assuming a content problem`);
   }
   // Same reasoning as poll.js: a run where everything was already `unchanged` is a normal
@@ -154,12 +168,18 @@ async function drainTier(label, negate, limit) {
      ORDER BY ${negate ? 'created_at ASC' : "(fecha_limite IS NOT NULL AND fecha_limite < date('now')), fecha_limite IS NULL, fecha_limite ASC, created_at ASC"} LIMIT ?`
   ).all(...OPEN_TENDER_ESTADOS, limit);
   if (!rows.length) return 0;
-  const prepared = rows.map(row => ({ id: row.id, expediente: row.expediente, context: contextFromRow(row) }));
-  const { enriched, failed } = await enrichBatch(prepared);
-  pingPublishedAmong(prepared);
+  let enriched = 0, failed = 0;
+  for (let i = 0; i < rows.length; i += ENRICH_CHUNK) {
+    const prepared = rows.slice(i, i + ENRICH_CHUNK)
+      .map(row => ({ id: row.id, expediente: row.expediente, context: contextFromRow(row) }));
+    const r = await enrichBatch(prepared);
+    enriched += r.enriched; failed += r.failed;
+    pingPublishedAmong(prepared);
+    publishOpenTenders();
+  }
   console.log(`backlog drain (${label}): ${enriched} enriched, ${failed} failed`);
-  if (failed / prepared.length > BATCH_FAILURE_ALERT_RATIO) {
-    alert('poll_batch_failed', `${label} backlog: ${failed} of ${prepared.length} `
+  if (failed / rows.length > BATCH_FAILURE_ALERT_RATIO) {
+    alert('poll_batch_failed', `${label} backlog: ${failed} of ${rows.length} `
       + `licitación(es) submitted for enrichment failed - check Anthropic API status/credentials`);
   }
   return enriched;

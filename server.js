@@ -19,6 +19,7 @@ import { login, logout, loginThrottled, redeemInvite, sessionUser,
 import { pollOnce } from './src/ingest/poll.js';
 import { ESTIMATE_GRACE_DAYS } from './src/ingest/enrich.js';
 import { pollLicitacionesOnce, drainStrandedLicitaciones } from './src/ingest/pollLicitaciones.js';
+import { publishReadyGrants, publishOpenTenders } from './src/publishReady.js';
 import { alert } from './src/ingest/bdns.js';
 import { alertsRouter, alertsEnabled, pruneAlertData } from './src/routes/alerts.js';
 import { runDigests } from './src/alerts/digest.js';
@@ -135,6 +136,15 @@ if (process.env.NODE_ENV === 'production') {
   cron.schedule('0 7 * * *', async () => {
     try { await pollOnce(); }
     catch (e) { alert('poll', e.message); }
+    try { publishReadyGrants(); }
+    catch (e) { alert('publish', e.message); }
+  }, { timezone: 'Europe/Madrid' });
+
+  // Everything summarised goes public without an operator step (src/publishReady.js). Hourly
+  // as well, so a summary that lands late (a slow batch, a restart) is not left waiting a day.
+  cron.schedule('15 * * * *', () => {
+    try { publishReadyGrants(); publishOpenTenders(); }
+    catch (e) { alert('publish', e.message); }
   }, { timezone: 'Europe/Madrid' });
 
   // Staggered 30min after the BDNS poll rather than run concurrently - both hit the
