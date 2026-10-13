@@ -74,13 +74,49 @@ export function grantGiver(body) {
   return { name, de };
 }
 
+// The programme's own name, when people would search for it. "AYUDAS A LA EMANCIPACIÓN JOVEN
+// 2026" is what Zaragoza calls it and what people type; the plain title ("Ayudas para jóvenes que
+// quieren independizarse...") never says "emancipación", so the page ranked 77th for "ayuda
+// emancipacion zaragoza". Used only when the official title is short, is not a legal heading
+// ("CONVOCATORIA DE...", "Resolución de..."), and has a word the plain title lacks.
+const LEGAL_START = /^(convocatoria|convocat[oò]ria|bases|extracto|resoluci|orden|decreto|acuerdo|convenio|anuncio|aprobaci|el objeto|subvenciones en r[eé]gimen|programa de subvenciones|l[ií]nea de)/i;
+const LEGAL_ANY = /(por (la|el) que|por las que|concurrencia|r[eé]gimen de|de fecha|n[ºo°]\s*\d|bases reguladoras)/i;
+const NAME_STOP = new Set(['ayuda', 'ayudas', 'subvencion', 'subvenciones', 'para', 'curso', 'academico', 'ejercicio', 'anualidad', 'convocatoria', 'programa', 'destinadas', 'dirigidas', 'personas', 'entidades', 'municipio', 'municipal']);
+const ACRONYMS = new Set(['LEADER', 'UNED', 'GALP', 'GAL', 'PEPAC', 'FEDER', 'FSE', 'PYME', 'PYMES', 'TIC', 'IES', 'CEIP', 'AMPA', 'AMPAS', 'ONG', 'ONGD', 'I+D', 'I+D+I', 'UE', 'DANA', 'ERASMUS', 'COVID', 'IRPF']);
+const fold = (s) => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+
+export function officialName(g) {
+  const t = String(g.title || '').replace(/\s+/g, ' ').trim().replace(/[.;,]+$/, '');
+  if (!t || !g.plain_title || t.length > 75 || LEGAL_START.test(t) || LEGAL_ANY.test(t)) return null;
+  // Distinctive words: in the official name, missing from the plain title (5-letter stems, so
+  // "joven" matches "jóvenes").
+  const plain = fold(g.plain_title).split(/[^a-z0-9]+/).map(w => w.slice(0, 5));
+  const fresh = fold(t).split(/[^a-z0-9]+/).filter(w => w.length >= 5 && !NAME_STOP.has(w) && !/^\d+$/.test(w))
+    .filter(w => !plain.includes(w.slice(0, 5)));
+  if (!fresh.length) return null;
+  // ALL-CAPS official titles read as shouting: sentence case, acronyms kept.
+  const letters = t.replace(/[^A-Za-zÀ-ÿ]/g, '');
+  const name = letters && letters === letters.toUpperCase()
+    ? t.split(' ').map(w => ACRONYMS.has(w.replace(/[^A-Z+ÁÉÍÓÚÑ]/g, '')) ? w : w.toLowerCase()).join(' ')
+    : t;
+  // Roman numerals stay numerals ("XVIII certamen", not "Xviii certamen").
+  const fixed = name.replace(/\b[ivxlc]{2,}\b/gi, (r) => /^(?=[mdclxvi])m*(c[md]|d?c{0,3})(x[cl]|l?x{0,3})(i[xv]|v?i{0,3})$/i.test(r) ? r.toUpperCase() : r);
+  return fixed.charAt(0).toUpperCase() + fixed.slice(1);
+}
+
 // "Ayudas para la feria de la cebolla de Palenzuela 2026 — subvención de la Diputación Provincial
 // de Palencia, hasta 6.000 € | Plazo Abierto". The year stays (most clicks came from queries with
 // one); "subvención" / "convocatoria" and who gives it make clear what the page is.
+// With a programme name the title leads with it and the plain title follows: "Ayudas a la
+// emancipación joven 2026 — Ayudas para jóvenes que quieren independizarse en alquiler en
+// Zaragoza | Plazo Abierto". The page's own heading stays the plain title.
 export function grantSeoTitle(g) {
-  const head = g.plain_title || g.title || 'Convocatoria';
   const year = (g.deadline_date || g.open_date || new Date().toISOString()).slice(0, 4);
-  const withYear = /\b20\d\d\b/.test(head) ? head : `${head} ${year}`;
+  const addYear = (s) => /\b20\d\d\b/.test(s) ? s : `${s} ${year}`;
+  const name = officialName(g);
+  if (name) return `${addYear(name)} — ${g.plain_title} | Plazo Abierto`;
+  const head = g.plain_title || g.title || 'Convocatoria';
+  const withYear = addYear(head);
   const kind = /^(premio|premios|concurso|certamen|beca|becas)\b/i.test(head) ? 'convocatoria' : 'subvención';
   const giver = grantGiver(g.granting_body);
   const amount = g.amount_max ? `, hasta ${eur(g.amount_max)}` : '';
@@ -89,11 +125,12 @@ export function grantSeoTitle(g) {
 
 export function grantSeoDescription(g) {
   const head = g.plain_title || g.title || 'Convocatoria';
+  const name = officialName(g);
   const giver = grantGiver(g.granting_body);
   const kind = /^(premio|premios|concurso|certamen|beca|becas)\b/i.test(head) ? 'Convocatoria' : 'Subvención';
   const amount = g.amount_max ? `Hasta ${eur(g.amount_max)}.` : g.budget_total ? `${eur(g.budget_total)} en total.` : '';
   const when = g.status !== 'OPEN' ? 'Plazo cerrado.' : g.deadline_date ? `Plazo hasta el ${g.deadline_date}.` : '';
-  return `${kind}${giver ? ` ${giver.de} ${giver.name}` : ''}: ${head}. ${amount} ${when} Quién puede pedirla y cómo, en castellano llano.`
+  return `${kind}${giver ? ` ${giver.de} ${giver.name}` : ''}: ${head}.${name ? ` Nombre oficial: ${name}.` : ''} ${amount} ${when} Quién puede pedirla y cómo, en castellano llano.`
     .replace(/\s+/g, ' ').trim();
 }
 
