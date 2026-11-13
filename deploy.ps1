@@ -6,8 +6,11 @@ $VM = "azureuser@51.145.161.85"
 $DEST = "/home/azureuser/convoca"
 
 $SHA = (git rev-parse HEAD).Trim()
+# The sources are copied from disk, but the deploy is stamped with HEAD's SHA: with
+# uncommitted changes, /health would vouch for a commit that is not what is running.
 if (git status --porcelain) {
-  Write-Host "!! working tree has uncommitted changes - deploying HEAD ($SHA), not what's on disk"
+  Write-Host "!! working tree has uncommitted changes - commit them first; not deploying"
+  exit 1
 }
 
 Write-Host "== sync sources =="
