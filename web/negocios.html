@@ -115,6 +115,7 @@
 
 <footer class="site">
   <div class="wrap">
+    <!--footer-links-->
     <p>Datos de la <a href="https://www.infosubvenciones.es">Base de Datos Nacional de Subvenciones</a>.
     Grupos de Acción Local: Junta de Castilla y León (2023-2027) y Red PAC (listado nacional 2014-2020).</p>
     <p>© <span id="yr"></span> Plazo Abierto ·
@@ -140,9 +141,11 @@ const safeUrl = (u) => {
 
 let ALL = [], chatMatch = null, onlyLeader = false, place = null;
 
+// Calendar days until the deadline: 0 on the day itself, 1 the day before (mirrors src/seoUtils.js).
 function daysLeft(deadline) {
   if (!deadline) return null;
-  return Math.ceil((new Date(deadline + 'T23:59:59') - Date.now()) / 86400000);
+  const t = new Date();
+  return Math.round((Date.parse(String(deadline).slice(0, 10)) - Date.UTC(t.getFullYear(), t.getMonth(), t.getDate())) / 86400000);
 }
 
 function render() {
@@ -156,20 +159,63 @@ function render() {
   document.getElementById('grid').innerHTML = list.map(g => {
     const d = daysLeft(g.deadline);
     const badge = g.is_rolling ? '<span class="badge-days">plazo abierto</span>'
-      : d != null ? `<span class="badge-days ${d <= 5 ? 'soon' : ''}">${d <= 0 ? 'último día' : `quedan ${d} días`}${g.deadline_estimated ? '*' : ''}</span>`
+      : d != null ? `<span class="badge-days ${d <= 5 ? 'soon' : ''}">${d <= 0 ? 'último día' : d === 1 ? 'queda 1 día' : `quedan ${d} días`}${g.deadline_estimated ? '*' : ''}</span>`
       : '<span class="badge-days soon">plazo por confirmar</span>';
-    const amount = g.amount_max ? `hasta ${eur(g.amount_max)}` : g.budget_total ? `${eur(g.budget_total)} en total` : 'según bases';
+    const real = (n) => Number(n) > 0.01;   // BDNS writes 0.01 where a call has no money - mirrors src/grantSeo.js
+    const amount = real(g.amount_max) ? `hasta ${eur(g.amount_max)}` : real(g.budget_total) ? `${eur(g.budget_total)} en total`
+      : [g.amount_max, g.budget_total].some(n => n != null && Number(n) > 0) ? 'Premio honorífico / sin dotación económica' : 'según bases';
+    // The call in plain language, shown as the card itself - same as the subvenciones tab
+    // (web/index.html): what it is for, who can apply, what it covers, how to apply.
+    let ex = null;
+    try { ex = g.plain_explainer ? JSON.parse(g.plain_explainer) : null; } catch { ex = null; }
+    const explainer = ex ? `
+      <p class="explainer-title">En castellano llano</p>
+      <div class="explainer">
+        ${[['¿Para qué es?', ex.para_que], ['¿Quién puede pedirla?', ex.quien_puede],
+           ['¿Qué cubre?', ex.que_cubre], ['¿Qué no cubre?', ex.que_no_cubre],
+           ['¿Cómo se pide?', ex.como_se_pide]]
+          .filter(([, v]) => v && v.trim())
+          .map(([k, v]) => `<p><strong>${k}</strong><br>${esc(v)}</p>`).join('')}
+        <p class="official">Resumen redactado automáticamente a partir de las bases oficiales.
+        Ante cualquier duda manda la convocatoria oficial.</p>
+      </div>` : '';
+
+    let checklist = null;
+    try { checklist = g.plain_checklist ? JSON.parse(g.plain_checklist) : null; } catch { checklist = null; }
+    const papeles = checklist && checklist.length ? `
+      <p class="explainer-title">Qué papeles necesitas</p>
+      <div class="explainer">
+        ${checklist.map(d => `<p><strong>${esc(d.documento)}</strong><br>${esc(d.para_que_sirve)}<br>
+          <em>Dónde: ${esc(d.donde_conseguirlo)}</em></p>`).join('')}
+        <p class="official">Lista redactada automáticamente a partir de las bases oficiales.
+        Ante cualquier duda manda la convocatoria oficial.</p>
+      </div>` : '';
+
+    // BDNS is the only link guaranteed to point at THIS convocatoria: it gets the button.
+    // The organism's portal and the bases reguladoras are secondary, labelled as what they are.
+    const source = safeUrl(g.source_url);
+    const extras = [
+      safeUrl(g.sede_url) ? `<a href="${esc(safeUrl(g.sede_url))}" target="_blank" rel="noopener">sede electrónica</a>` : '',
+      safeUrl(g.application_url) ? `<a href="${esc(safeUrl(g.application_url))}" target="_blank" rel="noopener">bases reguladoras</a>` : '',
+    ].filter(Boolean).join(' · ');
+    const official = g.plain_title && g.title !== g.plain_title
+      ? `<p class="official">Título oficial: ${esc(g.title)}</p>` : '';
+
     return `<article class="grant-card">
       <div class="org">${esc(g.granting_body || '')} ${badge}</div>
       <h4><a href="${esc(grantPath(g))}">${esc(g.plain_title || g.title)}</a></h4>
-      <p class="desc">${esc(g.ai_summary || g.funds_what || '')}</p>
+      <p class="desc">${esc(g.ai_summary || '')}</p>
       <div>
         <span class="chip"><span class="k">Importe</span><span class="v">${esc(amount)}</span></span>
         ${g.region ? `<span class="chip"><span class="k">Ámbito</span><span class="v">${esc(g.region)}</span></span>` : ''}
       </div>
       <div style="margin:.3rem 0 .8rem">${g.leader ? '<span class="tag leader">LEADER · desarrollo rural</span>' : ''}</div>
+      ${explainer}
+      ${papeles}
       <div class="spacer"></div>
-      <a class="btn block" href="${esc(grantPath(g))}">Ver en sencillo →</a>
+      ${source ? `<a class="btn block" target="_blank" rel="noopener" href="${esc(source)}">Ver el texto original de la convocatoria →</a>` : ''}
+      ${extras ? `<p class="official links">${extras}</p>` : ''}
+      ${official}
     </article>`;
   }).join('');
 }
