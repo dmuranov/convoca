@@ -4,14 +4,17 @@
 import { db } from './db.js';
 import { NATIONWIDE } from './ingest/regions.js';
 import { isEnriched } from './grantSeo.js';
+import { grantStillOpenSql, todayInSpain } from './seoUtils.js';
 
 // A hub with fewer live results than this is a doorway page, not a hub - 404 instead of
 // serving (or indexing) a near-empty page. Applies to every tier per plan §10 step 4.
 export const MIN_LIVE = Number(process.env.SEO_HUB_MIN_LIVE || 3);
 
-const LIVE_BASE = `SELECT g.*, e.entity_types, e.territory_scope
+// Open and with the deadline not yet passed (grantStillOpenSql, src/seoUtils.js). A function:
+// the date in it changes at midnight.
+const liveBase = () => `SELECT g.*, e.entity_types, e.territory_scope
   FROM grant_row g LEFT JOIN grant_eligibility e ON e.grant_id = g.id
-  WHERE g.published = 1 AND g.status = 'OPEN'`;
+  WHERE g.published = 1 AND g.status = 'OPEN' AND ${grantStillOpenSql()}`;
 const LIVE_ORDER = ` ORDER BY g.deadline_date IS NULL, g.deadline_date LIMIT 200`;
 
 // BDNS registers some calls twice - the extracto and the convocatoria, each with its own
@@ -45,10 +48,10 @@ export function dedupeGrants(grants) {
 // lists (the state-wide one for every hub) many times over.
 const memo = new Map();
 const live = (where, ...args) => {
-  const key = where + '|' + args.join('|');
+  const key = todayInSpain() + '|' + where + '|' + args.join('|');
   const hit = memo.get(key);
   if (hit && Date.now() - hit.at < 60_000) return hit.rows;
-  const rows = dedupeGrants(db.prepare(`${LIVE_BASE} AND ${where}${LIVE_ORDER}`).all(...args));
+  const rows = dedupeGrants(db.prepare(`${liveBase()} AND ${where}${LIVE_ORDER}`).all(...args));
   memo.set(key, { at: Date.now(), rows });
   return rows;
 };
@@ -99,7 +102,7 @@ export function relatedOpenGrants(g, limit = 6) {
      + CASE WHEN @cat IS NOT NULL AND LOWER(g.category) = LOWER(@cat) THEN 2 ELSE 0 END
      + CASE WHEN g.region = @region THEN 1 ELSE 0 END) AS score
     FROM grant_row g
-    WHERE g.published = 1 AND g.status = 'OPEN' AND g.id != @id AND g.plain_explainer IS NOT NULL
+    WHERE g.published = 1 AND g.status = 'OPEN' AND ${grantStillOpenSql()} AND g.id != @id AND g.plain_explainer IS NOT NULL
       AND (g.region = @region OR (@cat IS NOT NULL AND LOWER(g.category) = LOWER(@cat) AND g.region = @nationwide))
       AND (g.municipality IS NULL OR (g.municipality = @muni AND g.province IS @prov))
     ORDER BY score DESC, g.deadline_date IS NULL, g.deadline_date

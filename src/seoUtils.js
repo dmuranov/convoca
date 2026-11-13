@@ -58,6 +58,15 @@ export const BENEFICIARIO_SLUGS = new Map(
 const MADRID_DAY = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Madrid' });
 // Today's date in Spain, YYYY-MM-DD.
 export const todayInSpain = (now = new Date()) => MADRID_DAY.format(now);
+
+// Still open for applications today: no deadline given, a rolling call, or the deadline is
+// today or later (in Spain). Every public list (the three tabs, hubs, related grants, the
+// assistant's search) uses these: an item whose deadline has passed is never listed.
+// The date is our own YYYY-MM-DD, so it is safe inline in the SQL.
+export const grantStillOpenSql = (a = 'g.') =>
+  `(${a}deadline_date IS NULL OR ${a}is_rolling = 1 OR substr(${a}deadline_date, 1, 10) >= '${todayInSpain()}')`;
+export const tenderStillOpenSql = (a = '') =>
+  `(${a}fecha_limite IS NULL OR substr(${a}fecha_limite, 1, 10) >= '${todayInSpain()}')`;
 export function daysLeft(deadline, now = new Date()) {
   if (!deadline) return null;
   return Math.round((Date.parse(String(deadline).slice(0, 10)) - Date.parse(MADRID_DAY.format(now))) / 86400000);

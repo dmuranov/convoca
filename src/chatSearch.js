@@ -13,6 +13,7 @@ import { db } from './db.js';
 import { MUNICIPIOS, findMunicipio } from './municipios.js';
 import { CCAA, INE_PROVINCES, NATIONWIDE } from './ingest/regions.js';
 import { isBusinessGrant } from './negocios.js';
+import { grantStillOpenSql } from './seoUtils.js';
 
 const fold = (s) => String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
 const words = (s) => fold(s).replace(/[^a-z0-9ñ]+/g, ' ').trim().split(' ').filter(Boolean);
@@ -143,14 +144,15 @@ function inTerritory(g, place) {
 // The grant is for one municipality and we don't know the asker is from there.
 export const onlyForOtherTown = (g, place) => !!g.municipality && (!place?.name || place.fromProvince) && g.municipality !== place?.name;
 
-const OPEN = db.prepare(`
+// Built per search: "still open" depends on today's date.
+const openGrants = () => db.prepare(`
   SELECT g.id, g.bdns_ref, g.title, g.plain_title, g.granting_body, g.region, g.province, g.municipality, g.category,
          g.ai_summary, g.plain_explainer, g.amount_max, g.budget_total, g.source_url, g.is_rolling, g.beneficiarios_bdns,
          g.deadline_date AS deadline,
          CASE WHEN g.deadline_source = 'computed' AND g.deadline_confirmed = 0 THEN 1 ELSE 0 END AS deadline_estimated,
          e.entity_types, e.applicant_v, e.funds_what, e.territory_scope
   FROM grant_row g LEFT JOIN grant_eligibility e ON e.grant_id = g.id
-  WHERE g.published = 1 AND g.status = 'OPEN'`);
+  WHERE g.published = 1 AND g.status = 'OPEN' AND ${grantStillOpenSql()}`).all();
 
 // -> { place, business, terms, total, grants (all matches, best first) }
 // `section: 'negocios'` (the Negocios page) always means business grants only.
@@ -168,7 +170,7 @@ export function searchGrants(message, { place = null, section = null, groups = n
   const terms = aiGroups
     ? aiGroups.map(gr => ({ word: gr[0], alts: [...new Set(gr.map(stem))], ai: true }))
     : topicTerms(message).filter(t => !placeWords.has(t.word) && !placeWords.has(t.word.replace(/n[ao]$/, '')));
-  const pool = OPEN.all().filter(g => inTerritory(g, place) && (!business || isBusinessGrant(g)));
+  const pool = openGrants().filter(g => inTerritory(g, place) && (!business || isBusinessGrant(g)));
   let scored;
   let fallback = null;
   if (!terms.length) {

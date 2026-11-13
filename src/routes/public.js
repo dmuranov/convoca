@@ -15,6 +15,7 @@ import { galContext, galLookup } from '../gal.js';
 import { isBusinessGrant, isLeaderGrant } from '../negocios.js';
 import { understandAndSearch } from '../chatAI.js';
 import { eligibilityForChat } from '../grantSeo.js';
+import { grantStillOpenSql, tenderStillOpenSql } from '../seoUtils.js';
 
 export const publicRouter = Router();
 
@@ -95,7 +96,7 @@ publicRouter.get('/api/grants', (req, res) => {
                 THEN 1 ELSE 0 END AS deadline_estimated,
            e.entity_types, e.funds_what, e.territory_scope
     FROM grant_row g LEFT JOIN grant_eligibility e ON e.grant_id = g.id
-    WHERE g.published = 1 AND g.status = 'OPEN'
+    WHERE g.published = 1 AND g.status = 'OPEN' AND ${grantStillOpenSql()}
     ORDER BY g.deadline_date IS NULL, g.deadline_date
     LIMIT 5000`).all();
   const last = db.prepare('SELECT MAX(created_at) m FROM grant_row').get().m;
@@ -115,7 +116,7 @@ publicRouter.get('/api/licitaciones', (req, res) => {
            source_url, titulo, resumen, quien_puede_interesarle, que_hay_que_hacer,
            requisitos_clave, complejidad, complejidad_motivo
     FROM licitacion_row
-    WHERE published = 1 AND estado = 'licitacion'
+    WHERE published = 1 AND estado = 'licitacion' AND ${tenderStillOpenSql()}
     ORDER BY fecha_limite IS NULL, fecha_limite
     LIMIT 5000`).all();
   const last = db.prepare('SELECT MAX(created_at) m FROM licitacion_row').get().m;
@@ -145,7 +146,7 @@ publicRouter.get('/api/negocios', (req, res) => {
                 THEN 1 ELSE 0 END AS deadline_estimated,
            e.funds_what
     FROM grant_row g LEFT JOIN grant_eligibility e ON e.grant_id = g.id
-    WHERE g.published = 1 AND g.status = 'OPEN'
+    WHERE g.published = 1 AND g.status = 'OPEN' AND ${grantStillOpenSql()}
     ORDER BY g.deadline_date IS NULL, g.deadline_date
     LIMIT 5000`).all();
   const grants = [];
