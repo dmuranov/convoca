@@ -45,9 +45,9 @@ function renderPage(g, related = []) {
   let checklist = null;
   try { checklist = g.plain_checklist ? JSON.parse(g.plain_checklist) : null; } catch { checklist = null; }
 
-  // A call that has just closed keeps its page for a few weeks (isGrantLive, src/grantSeo.js):
-  // the banner says it is closed and the list under it offers open grants nearby. Direct
-  // awards and long-closed calls never get here - the route answers 410.
+  // A closed call keeps its page (isGrantLive, src/grantSeo.js): the banner says it is closed
+  // and the list under it offers open grants nearby. Direct awards never get here - the
+  // route answers 410.
   const closedBanner = g.status === 'CLOSED' ? `
     <div class="closed-banner">
       <strong>Convocatoria cerrada — Consulta las condiciones y prepárate para la próxima edición.</strong>
@@ -213,8 +213,8 @@ seoRouter.get('/subvenciones/:slugId', (req, res, next) => {
     FROM grant_row gr LEFT JOIN grant_eligibility e ON e.grant_id = gr.id
     WHERE gr.bdns_ref = ? AND gr.published = 1`).get(m[2]);
   if (!g) return next();
-  // Direct awards and calls closed long ago are not shown: 410 Gone, so search engines drop
-  // the address, with the way to the open grants for whoever followed an old link.
+  // Direct awards are not shown: 410 Gone, so search engines drop the address, with the way
+  // to the open grants for whoever followed an old link.
   if (!isGrantLive(g)) {
     return res.status(410).set('Content-Type', 'text/html; charset=utf-8').send(pageShell({
       title: 'Convocatoria no disponible | Plazo Abierto',

@@ -6,7 +6,7 @@
 import { Router } from 'express';
 import { isGrantIndexable } from '../grantSeo.js';
 import { db } from '../db.js';
-import { BASE_URL, esc, grantPath, licitacionPath, slugify, CCAA_SLUGS, PROVINCE_CCAA, CATEGORY_SLUGS, BENEFICIARIO_SLUGS } from '../seoUtils.js';
+import { BASE_URL, esc, grantPath, licitacionPath, slugify, todayInSpain, CCAA_SLUGS, PROVINCE_CCAA, CATEGORY_SLUGS, BENEFICIARIO_SLUGS } from '../seoUtils.js';
 import { ccaaHub, provinceHub, categoryHub, estatalesHub, beneficiarioHub, beneficiarioCcaaHub } from '../seoQueries.js';
 
 export const sitemapRouter = Router();
@@ -34,12 +34,12 @@ sitemapRouter.get('/sitemap_index.xml', (req, res) => {
 });
 
 // Every indexable published grant (isGrantIndexable, src/grantSeo.js - the same test the page
-// uses, so the sitemap never lists a noindex or a 410 page): open calls, and calls closed in
-// the last few weeks, with our plain-language explanation. Direct awards, long-closed calls
-// and unpublished grants are not here.
+// uses, so the sitemap never lists a noindex or a 410 page): open and closed calls with our
+// plain-language explanation. Direct awards, grants without the explanation and unpublished
+// grants are not here.
 // Prioritised per §6 - "small crawl budget on a new domain, prioritise what closes
-// soon" - open-and-closing-soonest first, closed ones last since they're least likely to
-// earn a fresh crawl and least urgent if they don't get one immediately.
+// soon" - open-and-closing-soonest first, then closed ones, most recently closed first and at
+// low priority, since they're least urgent if they don't get a fresh crawl immediately.
 sitemapRouter.get('/sitemap-grants.xml', (req, res) => {
   const rows = db.prepare(`
     SELECT bdns_ref, plain_title, title, status, deadline_date, created_at, closed_at, plain_explainer
@@ -56,20 +56,20 @@ sitemapRouter.get('/sitemap-grants.xml', (req, res) => {
   res.set('Content-Type', 'application/xml; charset=utf-8').send(urlset(entries));
 });
 
-// Every published licitación (same §5 reasoning as grants: non-active estados stay
-// indexable with a status banner, so no estado filter here either). Active ('licitacion')
-// first, ordered by closest deadline; everything else last and lower-priority.
+// Only tenders someone can still bid on: state 'licitacion' and the deadline today or later
+// (or not given). A tender past its deadline, awarded, resolved or cancelled keeps its page,
+// with a status banner, but is not offered to search engines: there were thousands of them
+// against a small crawl budget. Ordered by closest deadline.
+export const BIDDABLE_SQL = `published = 1 AND estado = 'licitacion'
+  AND (fecha_limite IS NULL OR substr(fecha_limite, 1, 10) >= @today)`;
 sitemapRouter.get('/sitemap-licitaciones.xml', (req, res) => {
   const rows = db.prepare(`
     SELECT id, titulo, expediente, estado, fecha_limite, created_at
-    FROM licitacion_row WHERE published = 1
-    ORDER BY estado != 'licitacion', fecha_limite IS NULL, fecha_limite
-    LIMIT ?`).all(MAX_PER_SITEMAP);
+    FROM licitacion_row WHERE ${BIDDABLE_SQL}
+    ORDER BY fecha_limite IS NULL, fecha_limite
+    LIMIT @limit`).all({ today: todayInSpain(), limit: MAX_PER_SITEMAP });
 
-  const entries = rows.map(l => {
-    const priority = l.estado === 'licitacion' ? 0.7 : 0.3;
-    return urlTag(licitacionPath(l), (l.created_at || '').slice(0, 10) || null, priority);
-  });
+  const entries = rows.map(l => urlTag(licitacionPath(l), (l.created_at || '').slice(0, 10) || null, 0.7));
   res.set('Content-Type', 'application/xml; charset=utf-8').send(urlset(entries));
 });
 

@@ -20,22 +20,14 @@ export function isEnriched(g) {
   } catch { return false; }
 }
 
-// Only calls someone can act on have a page. A direct award (closed, no deadline: nothing to
-// apply to) and a call closed more than CLOSED_INDEX_DAYS ago are not shown at all: the route
-// answers 410 Gone and they are in no list and no sitemap. A call that has just closed keeps
-// its page for CLOSED_INDEX_DAYS, with a banner and links to open grants, because people
-// still look it up in the days after the deadline. Set CLOSED_INDEX_DAYS to 0 to drop a call
-// the day it closes.
-export const CLOSED_INDEX_DAYS = 30;
-export const indexCutoff = (today = new Date().toISOString().slice(0, 10)) =>
-  new Date(Date.parse(today + 'T00:00:00Z') - CLOSED_INDEX_DAYS * 86400000).toISOString().slice(0, 10);
-export function isGrantLive(g, today) {
-  if (g.status !== 'CLOSED') return true;
-  if (!g.deadline_date) return false;
-  return CLOSED_INDEX_DAYS > 0 && g.deadline_date >= indexCutoff(today);
-}
-// Indexed: shown, and with our explanation.
-export const isGrantIndexable = (g, today) => isGrantLive(g, today) && isEnriched(g);
+// A call keeps its page after it closes, however long ago: these grants come back every year
+// with similar rules, and people look up last year's call to prepare the next one. The page
+// says it is closed and offers open grants nearby. Only a direct award (closed, no deadline:
+// there was never anything to apply to) has no page: the route answers 410 Gone and it is in
+// no list and no sitemap.
+export const isGrantLive = (g) => g.status !== 'CLOSED' || !!g.deadline_date;
+// Indexed and in the sitemap: shown, and with our explanation.
+export const isGrantIndexable = (g) => isGrantLive(g) && isEnriched(g);
 
 // BDNS writes 0.01 where a call has no money (honorary prizes): never a real amount.
 export const realAmount = (n) => (Number(n) > 0.01 ? Number(n) : null);

@@ -56,6 +56,8 @@ export const BENEFICIARIO_SLUGS = new Map(
 // day before. It used to round up the hours left until 23:59, so the last day read "quedan 1
 // días" and "último día" never showed.
 const MADRID_DAY = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Madrid' });
+// Today's date in Spain, YYYY-MM-DD.
+export const todayInSpain = (now = new Date()) => MADRID_DAY.format(now);
 export function daysLeft(deadline, now = new Date()) {
   if (!deadline) return null;
   return Math.round((Date.parse(String(deadline).slice(0, 10)) - Date.parse(MADRID_DAY.format(now))) / 86400000);

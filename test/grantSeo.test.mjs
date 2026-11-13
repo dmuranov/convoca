@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { grantGiver, grantSeoTitle, grantSeoDescription, isGrantIndexable, isGrantLive, indexCutoff, amountLabel, cardHook, HOOK_MAX } from '../src/grantSeo.js';
+import { grantGiver, grantSeoTitle, grantSeoDescription, isGrantIndexable, isGrantLive, amountLabel, cardHook, HOOK_MAX } from '../src/grantSeo.js';
 import { daysLabel, daysLeft } from '../src/seoUtils.js';
 import { grantListItem } from '../src/siteChrome.js';
 import { dedupeGrants } from '../src/seoQueries.js';
@@ -32,25 +32,23 @@ test('titles say it is a subsidy and who gives it, keeping the year', () => {
 
 const EX = JSON.stringify({ para_que: 'Para arreglar el local.', quien_puede: 'Asociaciones.' });
 
-test('shown: open calls, and calls closed in the last 30 days; never a direct award or a long-closed call', () => {
-  const today = '2026-10-08';
-  assert.equal(indexCutoff(today), '2026-09-08');
-  assert.ok(isGrantLive({ status: 'OPEN' }, today));
-  assert.ok(isGrantLive({ status: 'OPEN', deadline_date: null }, today));
-  assert.ok(isGrantLive({ status: 'CLOSED', deadline_date: '2026-09-20' }, today), 'just closed');
-  assert.ok(!isGrantLive({ status: 'CLOSED', deadline_date: '2026-07-12' }, today), 'long closed');
-  assert.ok(!isGrantLive({ status: 'CLOSED', deadline_date: null }, today), 'direct award / closed by BDNS');
+test('shown: open calls and closed calls, however long ago; never a direct award', () => {
+  assert.ok(isGrantLive({ status: 'OPEN' }));
+  assert.ok(isGrantLive({ status: 'OPEN', deadline_date: null }));
+  assert.ok(isGrantLive({ status: 'CLOSED', deadline_date: '2026-09-20' }), 'just closed');
+  assert.ok(isGrantLive({ status: 'CLOSED', deadline_date: '2025-07-12' }), 'closed long ago: kept for the next edition');
+  assert.ok(!isGrantLive({ status: 'CLOSED', deadline_date: null }), 'direct award / closed by BDNS');
 });
 
 test('index: shown and with our explanation; never a raw BDNS record', () => {
-  const today = '2026-10-08';
-  assert.ok(isGrantIndexable({ status: 'OPEN', plain_explainer: EX }, today));
-  assert.ok(isGrantIndexable({ status: 'CLOSED', deadline_date: '2026-09-20', plain_explainer: EX }, today));
-  assert.ok(!isGrantIndexable({ status: 'CLOSED', deadline_date: '2026-07-12', plain_explainer: EX }, today), 'long closed');
-  assert.ok(!isGrantIndexable({ status: 'CLOSED', deadline_date: null, plain_explainer: EX }, today), 'direct award');
-  assert.ok(!isGrantIndexable({ status: 'OPEN', plain_explainer: null }, today), 'no explanation yet');
-  assert.ok(!isGrantIndexable({ status: 'OPEN', plain_explainer: '{"para_que":" "}' }, today), 'empty explanation');
-  assert.ok(!isGrantIndexable({ status: 'OPEN', plain_explainer: 'not json' }, today));
+  assert.ok(isGrantIndexable({ status: 'OPEN', plain_explainer: EX }));
+  assert.ok(isGrantIndexable({ status: 'CLOSED', deadline_date: '2026-09-20', plain_explainer: EX }));
+  assert.ok(isGrantIndexable({ status: 'CLOSED', deadline_date: '2025-07-12', plain_explainer: EX }), 'closed long ago');
+  assert.ok(!isGrantIndexable({ status: 'CLOSED', deadline_date: '2025-07-12', plain_explainer: null }), 'closed, no explanation');
+  assert.ok(!isGrantIndexable({ status: 'CLOSED', deadline_date: null, plain_explainer: EX }), 'direct award');
+  assert.ok(!isGrantIndexable({ status: 'OPEN', plain_explainer: null }), 'no explanation yet');
+  assert.ok(!isGrantIndexable({ status: 'OPEN', plain_explainer: '{"para_que":" "}' }), 'empty explanation');
+  assert.ok(!isGrantIndexable({ status: 'OPEN', plain_explainer: 'not json' }));
 });
 
 test('days left: último día, queda 1 día, quedan n días', () => {
