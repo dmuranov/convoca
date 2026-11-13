@@ -10,24 +10,57 @@ import { APPLICANT_LABELS } from './applicants.js';
 
 const eur = (n) => `${Number(n).toLocaleString('es-ES')} €`;
 
-// Days a closed call stays indexed after its deadline (people still search a call that just closed;
-// the page says so with a banner).
-export const CLOSED_INDEX_DAYS = 30;
-
-// Index a grant page while it is open, and up to CLOSED_INDEX_DAYS after its deadline. A closed
-// grant with no deadline is a direct award (nothing to apply to) or a call BDNS itself reports
-// closed: never indexed. `today` is an ISO date.
-export function isGrantIndexable(g, today = new Date().toISOString().slice(0, 10)) {
-  if (g.status === 'OPEN') return true;
-  if (!g.deadline_date) return false;
-  const cutoff = new Date(Date.parse(today + 'T00:00:00Z') - CLOSED_INDEX_DAYS * 86400000).toISOString().slice(0, 10);
-  return g.deadline_date >= cutoff;
+// Has our plain-language explanation ("castellano llano"). A record without it is the raw BDNS
+// data and nothing of ours: its page is served but kept out of the index and the sitemap.
+export function isEnriched(g) {
+  if (!g.plain_explainer) return false;
+  try {
+    const ex = JSON.parse(g.plain_explainer);
+    return !!ex && typeof ex === 'object' && Object.values(ex).some(v => typeof v === 'string' && v.trim());
+  } catch { return false; }
 }
 
-// SQL twin of isGrantIndexable, for the sitemap (bind @cutoff = today - CLOSED_INDEX_DAYS).
-export const INDEXABLE_SQL = `(status = 'OPEN' OR (deadline_date IS NOT NULL AND deadline_date >= @cutoff))`;
+// Only calls someone can act on have a page. A direct award (closed, no deadline: nothing to
+// apply to) and a call closed more than CLOSED_INDEX_DAYS ago are not shown at all: the route
+// answers 410 Gone and they are in no list and no sitemap. A call that has just closed keeps
+// its page for CLOSED_INDEX_DAYS, with a banner and links to open grants, because people
+// still look it up in the days after the deadline. Set CLOSED_INDEX_DAYS to 0 to drop a call
+// the day it closes.
+export const CLOSED_INDEX_DAYS = 30;
 export const indexCutoff = (today = new Date().toISOString().slice(0, 10)) =>
   new Date(Date.parse(today + 'T00:00:00Z') - CLOSED_INDEX_DAYS * 86400000).toISOString().slice(0, 10);
+export function isGrantLive(g, today) {
+  if (g.status !== 'CLOSED') return true;
+  if (!g.deadline_date) return false;
+  return CLOSED_INDEX_DAYS > 0 && g.deadline_date >= indexCutoff(today);
+}
+// Indexed: shown, and with our explanation.
+export const isGrantIndexable = (g, today) => isGrantLive(g, today) && isEnriched(g);
+
+// BDNS writes 0.01 where a call has no money (honorary prizes): never a real amount.
+export const realAmount = (n) => (Number(n) > 0.01 ? Number(n) : null);
+export const isHonorary = (g) => !realAmount(g.amount_max) && !realAmount(g.budget_total)
+  && [g.amount_max, g.budget_total].some(n => n != null && Number(n) > 0 && Number(n) <= 0.01);
+export const HONORARY_LABEL = 'Premio honorífico / sin dotación económica';
+// "hasta 6.000 €" / "bolsa de 40.000 €" / the honorary label / "según bases".
+export function amountLabel(g) {
+  if (realAmount(g.amount_max)) return `hasta ${eur(g.amount_max)}`;
+  if (realAmount(g.budget_total)) return `bolsa de ${eur(g.budget_total)}`;
+  return isHonorary(g) ? HONORARY_LABEL : 'según bases';
+}
+
+// One line for a card in a list (hub pages): the first sentence of the summary, cut at a word
+// to 140 characters. The full explanation is only on the grant's own page, so a hub does not
+// repeat the text of every page it links to.
+export const HOOK_MAX = 140;
+export function cardHook(g) {
+  const text = String(g.ai_summary || '').replace(/\s+/g, ' ').trim();
+  if (!text) return '';
+  // First sentence; at least 40 characters, so "Art. 5 ..." is not taken for one.
+  const first = (/^.{39,}?[.!?](?=\s|$)/.exec(text)?.[0] || text).trim();
+  if (first.length <= HOOK_MAX) return first;
+  return first.slice(0, HOOK_MAX - 1).replace(/\s+\S*$/, '').replace(/[,;:]$/, '') + '…';
+}
 
 const SMALL = new Set(['de', 'del', 'la', 'las', 'los', 'el', 'y', 'e', 'a', 'en', 'para', 'por', 'd', 'l']);
 function titleCase(s) {
@@ -119,7 +152,7 @@ export function grantSeoTitle(g) {
   const withYear = addYear(head);
   const kind = /^(premio|premios|concurso|certamen|beca|becas)\b/i.test(head) ? 'convocatoria' : 'subvención';
   const giver = grantGiver(g.granting_body);
-  const amount = g.amount_max ? `, hasta ${eur(g.amount_max)}` : '';
+  const amount = realAmount(g.amount_max) ? `, hasta ${eur(g.amount_max)}` : '';
   return `${withYear} — ${kind}${giver ? ` ${giver.de} ${giver.name}` : ''}${amount} | Plazo Abierto`;
 }
 
@@ -128,7 +161,7 @@ export function grantSeoDescription(g) {
   const name = officialName(g);
   const giver = grantGiver(g.granting_body);
   const kind = /^(premio|premios|concurso|certamen|beca|becas)\b/i.test(head) ? 'Convocatoria' : 'Subvención';
-  const amount = g.amount_max ? `Hasta ${eur(g.amount_max)}.` : g.budget_total ? `${eur(g.budget_total)} en total.` : '';
+  const amount = realAmount(g.amount_max) ? `Hasta ${eur(g.amount_max)}.` : realAmount(g.budget_total) ? `${eur(g.budget_total)} en total.` : '';
   const when = g.status !== 'OPEN' ? 'Plazo cerrado.' : g.deadline_date ? `Plazo hasta el ${g.deadline_date}.` : '';
   return `${kind}${giver ? ` ${giver.de} ${giver.name}` : ''}: ${head}.${name ? ` Nombre oficial: ${name}.` : ''} ${amount} ${when} Quién puede pedirla y cómo, en castellano llano.`
     .replace(/\s+/g, ' ').trim();

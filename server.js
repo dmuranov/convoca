@@ -14,6 +14,8 @@ import { seoLicitacionesRouter } from './src/routes/seoLicitaciones.js';
 import { sitemapRouter } from './src/routes/sitemap.js';
 import { pingIndexNow } from './src/indexnow.js';
 import { grantPath, BASE_URL } from './src/seoUtils.js';
+import { footerLinks } from './src/siteChrome.js';
+import { readFileSync } from 'node:fs';
 import { login, logout, loginThrottled, redeemInvite, sessionUser,
          setSessionCookie, clearSessionCookie, seedOperator } from './src/auth.js';
 import { pollOnce } from './src/ingest/poll.js';
@@ -36,6 +38,14 @@ app.set('trust proxy', 1); // behind Caddy
 app.use((req, res, next) => {
   const host = String(req.headers.host || '').toLowerCase();
   if (host.startsWith('www.')) return res.redirect(301, `https://${host.slice(4)}${req.originalUrl}`);
+  next();
+});
+// A page address with a query string (?q=, ?page=, a filter, a tracking tag) is never the
+// address to index: the page without it is. noindex, follow - the links still count.
+app.use((req, res, next) => {
+  if ((req.method === 'GET' || req.method === 'HEAD') && Object.keys(req.query).length && !/^\/api\/|\.(xml|txt)$/.test(req.path)) {
+    res.set('X-Robots-Tag', 'noindex, follow');
+  }
   next();
 });
 app.use(express.json({ limit: '64kb' }));
@@ -119,11 +129,19 @@ if (process.env.INDEXNOW_KEY) {
 
 // ---- pages ----
 const web = (f) => path.join(__dirname, 'web', f);
-app.get('/', (req, res) => res.sendFile(web('index.html')));
+// The three public pages carry the same footer links as the server-rendered ones
+// (src/siteChrome.js), put where the file has <!--footer-links-->. express.static sends
+// conditional headers for a file; these are built per request, so no caching headers.
+const pageCache = new Map();
+const publicPage = (f) => (req, res) => {
+  if (!pageCache.has(f) || process.env.NODE_ENV !== 'production') pageCache.set(f, readFileSync(web(f), 'utf8'));
+  res.type('html').send(pageCache.get(f).replace('<!--footer-links-->', () => footerLinks()));
+};
+app.get('/', publicPage('index.html'));
 app.get('/entrar', (req, res) => res.sendFile(web('login.html')));
 app.get('/registro', (req, res) => res.sendFile(web('registro.html')));
-app.get('/licitaciones', (req, res) => res.sendFile(web('licitaciones.html')));
-app.get('/negocios', (req, res) => res.sendFile(web('negocios.html')));
+app.get('/licitaciones', publicPage('licitaciones.html'));
+app.get('/negocios', publicPage('negocios.html'));
 app.get('/panel', (req, res) => {
   const u = sessionUser(req);
   if (!u) return res.redirect('/entrar');

@@ -66,6 +66,7 @@
 
 <footer class="site">
   <div class="wrap">
+    <!--footer-links-->
     <p>Los datos proceden de la <a href="https://contrataciondelestado.es">Plataforma de Contratación del Sector Público</a>.
     Confirma siempre importes, plazos y requisitos en la licitación oficial antes de presentarte.</p>
     <p>© <span id="yr"></span> Plazo Abierto ·
@@ -88,9 +89,11 @@ const esc = (s) => String(s ?? '').replace(/[&<>"']/g, c =>
 
 let ALL = [], activeTipo = null, activeCcaa = null;
 
+// Calendar days until the deadline: 0 on the day itself, 1 the day before (mirrors src/seoUtils.js).
 function daysLeft(deadline) {
   if (!deadline) return null;
-  return Math.ceil((new Date(deadline + 'T23:59:59') - Date.now()) / 86400000);
+  const t = new Date();
+  return Math.round((Date.parse(String(deadline).slice(0, 10)) - Date.UTC(t.getFullYear(), t.getMonth(), t.getDate())) / 86400000);
 }
 
 function render() {
@@ -108,7 +111,7 @@ function render() {
     // fecha_limite is a literal field straight from PLACSP, never computed - no
     // estimated-date asterisk needed here the way grant_row's deadline sometimes does.
     const badge = d != null
-      ? `<span class="badge-days ${d <= 5 ? 'soon' : ''}">${d <= 0 ? 'último día' : `quedan ${d} días`}</span>`
+      ? `<span class="badge-days ${d <= 5 ? 'soon' : ''}">${d <= 0 ? 'último día' : d === 1 ? 'queda 1 día' : `quedan ${d} días`}</span>`
       : '<span class="badge-days soon">plazo por confirmar</span>';
 
     const amount = l.presupuesto_base
@@ -119,27 +122,23 @@ function render() {
       ? `<span class="chip chip-complejidad ${esc(l.complejidad)}" title="${esc(l.complejidad_motivo || '')}">Complejidad: ${esc(l.complejidad)}</span>`
       : '';
 
-    // "Explícamelo fácil" panel - same collapsed-until-asked pattern as the subvenciones tab.
+    // The tender in plain language, shown as the card itself - same as the subvenciones tab.
     let tareas = []; try { tareas = JSON.parse(l.que_hay_que_hacer || '[]'); } catch {}
     const explainer = (l.quien_puede_interesarle || tareas.length) ? `
-      <button class="btn ghost block explain-btn" type="button" aria-expanded="false" aria-controls="ex-${i}">
-        Explícamelo fácil
-      </button>
-      <div class="explainer" id="ex-${i}" hidden>
+      <p class="explainer-title">En castellano llano</p>
+      <div class="explainer">
         ${l.quien_puede_interesarle ? `<p><strong>¿A quién le interesa?</strong><br>${esc(l.quien_puede_interesarle)}</p>` : ''}
         ${tareas.length ? `<p><strong>¿Qué hay que hacer?</strong></p><ul>${tareas.map(t => `<li>${esc(t)}</li>`).join('')}</ul>` : ''}
         <p class="official">Resumen redactado automáticamente a partir del anuncio y los pliegos.
         Ante cualquier duda consulta la licitación oficial.</p>
       </div>` : '';
 
-    // "¿Qué papeles necesito?" panel - requisitos_clave is the closest PLACSP has to a
+    // The requirements, shown too - requisitos_clave is the closest PLACSP has to a
     // document checklist (the feed doesn't itemise paperwork the way BDNS's bases do).
     let requisitos = []; try { requisitos = JSON.parse(l.requisitos_clave || '[]'); } catch {}
     const papeles = requisitos.length ? `
-      <button class="btn ghost block papeles-btn" type="button" aria-expanded="false" aria-controls="pp-${i}">
-        ¿Qué papeles necesito?
-      </button>
-      <div class="explainer" id="pp-${i}" hidden>
+      <p class="explainer-title">Qué te piden</p>
+      <div class="explainer">
         ${requisitos.map(r => `<p>${esc(r)}</p>`).join('')}
         <p class="official">Lista redactada automáticamente a partir de los pliegos.
         Ante cualquier duda consulta la licitación oficial.</p>
@@ -162,7 +161,7 @@ function render() {
       ${explainer}
       ${papeles}
       <div class="spacer"></div>
-      <a class="btn block" target="_blank" rel="noopener" href="${esc(l.source_url)}">Ver licitación oficial →</a>
+      <a class="btn block" target="_blank" rel="noopener" href="${esc(l.source_url)}">Ver el texto original de la licitación →</a>
       ${pliegoLinks ? `<p class="official links">${pliegoLinks}</p>` : ''}
     </article>`;
   }).join('');
@@ -181,20 +180,6 @@ document.getElementById('filters-ccaa').addEventListener('click', (ev) => {
   activeCcaa = b.dataset.ccaa || null;
   document.querySelectorAll('#filters-ccaa button').forEach(x => x.classList.toggle('on', x === b));
   render();
-});
-
-document.getElementById('grid').addEventListener('click', (ev) => {
-  const btn = ev.target.closest('.explain-btn, .papeles-btn');
-  if (!btn) return;
-  const isPapeles = btn.classList.contains('papeles-btn');
-  const labels = isPapeles
-    ? ['¿Qué papeles necesito?', 'Ocultar papeles']
-    : ['Explícamelo fácil', 'Ocultar explicación'];
-  const panel = document.getElementById(btn.getAttribute('aria-controls'));
-  const open = panel.hidden;
-  panel.hidden = !open;
-  btn.setAttribute('aria-expanded', String(open));
-  btn.textContent = open ? labels[1] : labels[0];
 });
 
 (async function load() {

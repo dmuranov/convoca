@@ -135,6 +135,7 @@
 
 <footer class="site">
   <div class="wrap">
+    <!--footer-links-->
     <p>Los datos proceden de la <a href="https://www.infosubvenciones.es">Base de Datos Nacional de Subvenciones</a>.
     Confirma siempre cuantías, plazos y requisitos en la convocatoria oficial antes de solicitar.</p>
     <p>© <span id="yr"></span> Plazo Abierto — ayudas y subvenciones para pueblos, asociaciones y
@@ -146,6 +147,9 @@
 <script>
 document.getElementById('yr').textContent = new Date().getFullYear();
 const eur = (n) => n == null ? null : Number(n).toLocaleString('es-ES') + ' €';
+// BDNS writes 0.01 where a call has no money (honorary prizes) - mirrors amountLabel() in src/grantSeo.js.
+const real = (n) => Number(n) > 0.01;
+const honorary = (g) => !real(g.amount_max) && !real(g.budget_total) && [g.amount_max, g.budget_total].some(n => n != null && Number(n) > 0);
 // Mirrors slugify()/grantPath() in src/routes/seo.js - bdns_ref alone resolves the page
 // even if this drifts from the server's slug (title re-enriched, etc), but matching keeps
 // the same URL search engines see rather than creating a second, uncanonicalised one.
@@ -159,9 +163,11 @@ const TYPES = { Ayuntamiento: 'Ayuntamientos', Junta_Vecinal: 'Juntas vecinales'
 let ALL = [], chatMatch = null, activeCat = null, place = null;   // place = {name, province, ccaa}
 const NATIONWIDE = 'Toda España';   // mirrors src/ingest/regions.js
 
+// Calendar days until the deadline: 0 on the day itself, 1 the day before (mirrors src/seoUtils.js).
 function daysLeft(deadline) {
   if (!deadline) return null;
-  return Math.ceil((new Date(deadline + 'T23:59:59') - Date.now()) / 86400000);
+  const t = new Date();
+  return Math.round((Date.parse(String(deadline).slice(0, 10)) - Date.UTC(t.getFullYear(), t.getMonth(), t.getDate())) / 86400000);
 }
 
 function render() {
@@ -195,25 +201,25 @@ function render() {
     const est = g.deadline_estimated ? '*' : '';
     const estTitle = g.deadline_estimated ? ' title="Fecha estimada: puede variar según festivos locales y el cómputo de días hábiles. Confírmala en las bases oficiales."' : '';
     const badge = d != null
-      ? `<span class="badge-days ${d <= 10 ? 'soon' : ''}"${estTitle}>${d <= 0 ? 'último día' : `quedan ${d} días`}${est}</span>`
+      ? `<span class="badge-days ${d <= 10 ? 'soon' : ''}"${estTitle}>${d <= 0 ? 'último día' : d === 1 ? 'queda 1 día' : `quedan ${d} días`}${est}</span>`
       : (g.is_rolling ? '<span class="badge-days">plazo continuo</span>' : '<span class="badge-days soon">plazo por confirmar</span>');
     const types = JSON.parse(g.entity_types || '[]').map(t => TYPES[t] || t).join(', ');
     let funds = JSON.parse(g.funds_what || '[]').slice(0, 2).join(', ');
     if (funds.length > 48) funds = funds.slice(0, 48) + '…';
-    const amount = g.amount_max ? 'hasta ' + eur(g.amount_max) : (g.budget_total ? 'bolsa de ' + eur(g.budget_total) : 'según bases');
+    const amount = real(g.amount_max) ? 'hasta ' + eur(g.amount_max) : real(g.budget_total) ? 'bolsa de ' + eur(g.budget_total)
+      : honorary(g) ? 'Premio honorífico / sin dotación económica' : 'según bases';
     // Plain-Spanish headline leads; the official legal wording stays available but small.
     const head = g.plain_title || g.title;
     const official = g.plain_title && g.title !== g.plain_title
       ? `<p class="official">Título oficial: ${esc(g.title)}</p>` : '';
 
-    // "Explícamelo fácil" panel: the dumbed-down explainer, collapsed until asked for.
+    // The call in plain language, shown as the card itself (it used to sit behind an
+    // "Explícamelo fácil" button): what it is for, who can apply, what it covers, how to apply.
     let ex = null;
     try { ex = g.plain_explainer ? JSON.parse(g.plain_explainer) : null; } catch { ex = null; }
     const explainer = ex ? `
-      <button class="btn ghost block explain-btn" type="button" aria-expanded="false" aria-controls="ex-${i}">
-        Explícamelo fácil
-      </button>
-      <div class="explainer" id="ex-${i}" hidden>
+      <p class="explainer-title">En castellano llano</p>
+      <div class="explainer">
         ${[['¿Para qué es?', ex.para_que], ['¿Quién puede pedirla?', ex.quien_puede],
            ['¿Qué cubre?', ex.que_cubre], ['¿Qué no cubre?', ex.que_no_cubre],
            ['¿Cómo se pide?', ex.como_se_pide]]
@@ -223,14 +229,12 @@ function render() {
         Ante cualquier duda manda la convocatoria oficial.</p>
       </div>` : '';
 
-    // "¿Qué papeles necesito?" panel: document checklist, same collapsed-until-asked pattern.
+    // The papers needed, shown too (it used to sit behind a "¿Qué papeles necesito?" button).
     let checklist = null;
     try { checklist = g.plain_checklist ? JSON.parse(g.plain_checklist) : null; } catch { checklist = null; }
     const papeles = checklist && checklist.length ? `
-      <button class="btn ghost block papeles-btn" type="button" aria-expanded="false" aria-controls="pp-${i}">
-        ¿Qué papeles necesito?
-      </button>
-      <div class="explainer" id="pp-${i}" hidden>
+      <p class="explainer-title">Qué papeles necesitas</p>
+      <div class="explainer">
         ${checklist.map(d => `<p><strong>${esc(d.documento)}</strong><br>${esc(d.para_que_sirve)}<br>
           <em>Dónde: ${esc(d.donde_conseguirlo)}</em></p>`).join('')}
         <p class="official">Lista redactada automáticamente a partir de las bases oficiales.
@@ -258,7 +262,7 @@ function render() {
       ${explainer}
       ${papeles}
       <div class="spacer"></div>
-      <a class="btn block" target="_blank" rel="noopener" href="${esc(g.source_url)}">Ver convocatoria oficial →</a>
+      <a class="btn block" target="_blank" rel="noopener" href="${esc(g.source_url)}">Ver el texto original de la convocatoria →</a>
       ${extras ? `<p class="official links">${extras}</p>` : ''}
       ${official}
     </article>`;
@@ -319,23 +323,6 @@ placeMenu.addEventListener('click', (ev) => {
 placeClear.addEventListener('click', () => setPlace(null));
 document.addEventListener('click', (ev) => {
   if (!ev.target.closest('.place-box')) placeMenu.hidden = true;
-});
-
-// Delegated so it survives every re-render (category filtering rebuilds the grid).
-// Same toggle pattern for both collapsible panels: the "explícamelo fácil" explainer and the
-// "¿qué papeles necesito?" checklist.
-document.getElementById('grid').addEventListener('click', (ev) => {
-  const btn = ev.target.closest('.explain-btn, .papeles-btn');
-  if (!btn) return;
-  const isPapeles = btn.classList.contains('papeles-btn');
-  const labels = isPapeles
-    ? ['¿Qué papeles necesito?', 'Ocultar papeles']
-    : ['Explícamelo fácil', 'Ocultar explicación'];
-  const panel = document.getElementById(btn.getAttribute('aria-controls'));
-  const open = panel.hidden;
-  panel.hidden = !open;
-  btn.setAttribute('aria-expanded', String(open));
-  btn.textContent = open ? labels[1] : labels[0];
 });
 
 (async () => {

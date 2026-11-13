@@ -4,7 +4,8 @@
 // same as grants got their fichas before their hubs.
 import { Router } from 'express';
 import { db } from '../db.js';
-import { BASE_URL, esc, eur, slugify, licitacionPath, daysLeft, alertBox, ALERT_ASSETS } from '../seoUtils.js';
+import { BASE_URL, esc, eur, licitacionPath, daysLeft, daysLabel, alertBox, ALERT_ASSETS } from '../seoUtils.js';
+import { siteHeader, siteFooter } from '../siteChrome.js';
 import { ESTADO_LABEL } from '../ingest/enrichLicitacion.js';
 
 export const seoLicitacionesRouter = Router();
@@ -18,7 +19,8 @@ function deadlineLabel(l) {
   if (l.estado !== 'licitacion') return ESTADO_LABEL[l.estado] || l.estado;
   if (!l.fecha_limite) return 'Plazo por confirmar';
   const d = daysLeft(l.fecha_limite);
-  return d <= 0 ? 'Último día' : `Quedan ${d} días`;
+  const label = daysLabel(d);
+  return label.charAt(0).toUpperCase() + label.slice(1);
 }
 
 function renderPage(l) {
@@ -91,19 +93,7 @@ ${ALERT_ASSETS}
 <script type="application/ld+json">${JSON.stringify(jsonLd)}</script>
 </head>
 <body>
-<header class="site">
-  <div class="wrap">
-    <a class="logo" href="/">Plazo<span class="b">Abierto</span></a>
-    <nav>
-      <div class="tabs">
-        <a class="tab" href="/">Subvenciones</a>
-        <a class="tab on" href="/licitaciones">Licitaciones</a>
-        <a class="tab" href="/negocios">Negocios</a>
-      </div>
-      <a class="btn ghost" href="/entrar">Entrar</a>
-    </nav>
-  </div>
-</header>
+${siteHeader('licitaciones')}
 
 <main class="wrap" style="max-width:720px;padding-top:1.5rem;padding-bottom:3rem">
   <nav class="muted" style="font-size:.82rem;margin-bottom:.6rem">
@@ -122,7 +112,8 @@ ${ALERT_ASSETS}
     <p><strong>Tipo / procedimiento</strong><br>${esc([l.tipo_contrato, l.procedimiento].filter(Boolean).join(' · ') || 'Consulta los pliegos oficiales')}</p>
     ${l.lugar ? `<p><strong>Lugar de ejecución</strong><br>${esc(l.lugar)}</p>` : ''}
     ${complejidad}
-    <p><strong>Fuente oficial</strong><br><a href="${esc(l.source_url)}" target="_blank" rel="noopener">Ver licitación en PLACSP →</a></p>
+    <p><a class="btn" href="${esc(l.source_url)}" target="_blank" rel="noopener">Ver el texto original de la licitación →</a><br>
+      <span class="official">Plataforma de Contratación del Sector Público</span></p>
     ${pliegoLinks ? `<p><strong>Pliegos</strong><br>${pliegoLinks}</p>` : ''}
   </div>
 
@@ -139,6 +130,7 @@ ${ALERT_ASSETS}
   enlazada arriba.${camposAusentes.length ? ` Sin especificar en los pliegos: ${esc(camposAusentes.join(', '))}.` : ''}
   Publicado: ${esc((l.created_at || '').slice(0, 10))}.</p>
 </main>
+${siteFooter()}
 </body>
 </html>`;
 }

@@ -5,12 +5,14 @@
 // beneficiario) are ../routes/seoHubs.js, mounted after this router.
 import { Router } from 'express';
 import { db } from '../db.js';
-import { BASE_URL, BENEFICIARIO_TYPES as TYPES, esc, eur, slugify, grantPath, daysLeft,
+import { BASE_URL, BENEFICIARIO_TYPES as TYPES, esc, slugify, grantPath, daysLeft, daysLabel,
          CCAA_SLUGS, PROVINCE_CCAA, CATEGORY_SLUGS } from '../seoUtils.js';
 import { NATIONWIDE } from '../ingest/regions.js';
 import { alertBox, ALERT_ASSETS } from '../seoUtils.js';
 import { isBusinessGrant } from '../negocios.js';
-import { grantSeoTitle, grantSeoDescription, isGrantIndexable, whoCanApplyShort } from '../grantSeo.js';
+import { grantSeoTitle, grantSeoDescription, isGrantIndexable, isGrantLive, whoCanApplyShort, amountLabel, realAmount } from '../grantSeo.js';
+import { relatedOpenGrants } from '../seoQueries.js';
+import { siteHeader, siteFooter, liveHubs, pageShell, hubNav, ESTATALES_PATH } from '../siteChrome.js';
 
 export const seoRouter = Router();
 
@@ -20,10 +22,11 @@ function deadlineLabel(g) {
   if (!g.deadline_date) return 'Plazo por confirmar';
   const d = daysLeft(g.deadline_date);
   const est = g.deadline_source === 'computed' && !g.deadline_confirmed ? ' (fecha estimada)' : '';
-  return (d <= 0 ? 'Último día' : `Quedan ${d} días`) + est;
+  const label = daysLabel(d);
+  return label.charAt(0).toUpperCase() + label.slice(1) + est;
 }
 
-function renderPage(g) {
+function renderPage(g, related = []) {
   const path = grantPath(g);
   const canonical = BASE_URL + path;
   const head = g.plain_title || g.title;
@@ -31,7 +34,7 @@ function renderPage(g) {
   // itself drew searches the page cannot answer.
   const title = grantSeoTitle(g);
   const indexable = isGrantIndexable(g);
-  const amount = g.amount_max ? `hasta ${eur(g.amount_max)}` : (g.budget_total ? `bolsa de ${eur(g.budget_total)}` : 'según bases');
+  const amount = amountLabel(g);
   const description = grantSeoDescription(g);
 
   // BDNS's own beneficiary types first: the AI entity list cannot say 'pymes' or 'particulares'.
@@ -42,22 +45,32 @@ function renderPage(g) {
   let checklist = null;
   try { checklist = g.plain_checklist ? JSON.parse(g.plain_checklist) : null; } catch { checklist = null; }
 
-  const closedBanner = g.status === 'CLOSED' && !g.deadline_date ? `
+  // A call that has just closed keeps its page for a few weeks (isGrantLive, src/grantSeo.js):
+  // the banner says it is closed and the list under it offers open grants nearby. Direct
+  // awards and long-closed calls never get here - the route answers 410.
+  const closedBanner = g.status === 'CLOSED' ? `
     <div class="closed-banner">
-      <strong>No admite solicitudes.</strong> Es una ayuda concedida directamente a una entidad
-      concreta, o una convocatoria que el propio organismo da por cerrada. La dejamos como
-      referencia, pero no se puede pedir.
-    </div>` : g.status === 'CLOSED' ? `
-    <div class="closed-banner">
-      <strong>Plazo cerrado.</strong> Esta convocatoria ya no acepta solicitudes.
-      Se mantiene publicada porque suele repetirse cada año — vuelve a comprobarlo
-      más adelante o consulta el organismo convocante para la próxima edición.
+      <strong>Convocatoria cerrada — Consulta las condiciones y prepárate para la próxima edición.</strong>
+      El plazo terminó el ${esc(g.deadline_date)} y ya no acepta solicitudes. Estas ayudas suelen
+      repetirse cada año con requisitos parecidos.
+    </div>` : '';
+
+  const relatedOpenBlock = g.status === 'CLOSED' && related.length ? `
+    <div class="card related-open">
+      <h2>Convocatorias abiertas parecidas</h2>
+      <ul>${related.map(r => {
+        const d = daysLeft(r.deadline_date);
+        const when = d != null ? daysLabel(d) : r.is_rolling ? 'plazo continuo' : 'plazo por confirmar';
+        return `<li><a href="${esc(grantPath(r))}">${esc(r.plain_title || r.title)}</a>
+          <span class="muted">— ${esc([r.municipality || r.province || r.region, when].filter(Boolean).join(' · '))}</span></li>`;
+      }).join('')}</ul>
     </div>` : '';
 
   const explainerBlock = explainer ? `
     <div class="card">
       <h2>Explicación fácil</h2>
-      ${[['¿Para qué es?', explainer.para_que], ['¿Quién puede pedirla?', explainer.quien_puede],
+      ${[['¿Para qué es?', explainer.para_que], ['¿Cuánto dan?', amount === 'según bases' ? null : amount.charAt(0).toUpperCase() + amount.slice(1) + '.'],
+         ['¿Quién puede pedirla?', explainer.quien_puede],
          ['¿Qué cubre?', explainer.que_cubre], ['¿Qué no cubre?', explainer.que_no_cubre],
          ['¿Cómo se pide?', explainer.como_se_pide]]
         .filter(([, v]) => v && v.trim())
@@ -78,17 +91,19 @@ function renderPage(g) {
 
   // §7 internal linking: every ficha links out to its comunidad/provincia/sector/
   // beneficiario hubs (when they exist in our fixed taxonomy) - this is how Google (and a
-  // visitor) discovers those hub pages at all; there's no sitemap yet either. A hub link
-  // can occasionally 404 if that hub has since dropped under MIN_LIVE - acceptable at
-  // today's volume (2500+ grants), not worth a query per ficha render to pre-check.
-  const ccaaSlug = g.region && g.region !== NATIONWIDE && [...CCAA_SLUGS.values()].includes(g.region) ? slugify(g.region) : null;
-  const provinceSlug = g.province && ccaaSlug && PROVINCE_CCAA.get(g.province) === g.region ? slugify(g.province) : null;
-  const categorySlug = g.category && CATEGORY_SLUGS.has(slugify(g.category)) ? slugify(g.category) : null;
+  // visitor) discovers those hub pages. Only hubs that answer right now are linked
+  // (liveHubs, src/siteChrome.js - cached ten minutes), so a ficha never links to a 404.
+  const hubs = liveHubs();
+  const ccaaSlug = g.region && g.region !== NATIONWIDE && hubs.ccaa.includes(g.region) ? slugify(g.region) : null;
+  const estatal = g.region === NATIONWIDE && hubs.estatales;
+  const provinceSlug = g.province && ccaaSlug && PROVINCE_CCAA.get(g.province) === g.region && hubs.provinces.includes(g.province) ? slugify(g.province) : null;
+  const categorySlug = g.category && hubs.categories.includes(CATEGORY_SLUGS.get(slugify(g.category))) ? slugify(g.category) : null;
   const beneficiarioLinks = JSON.parse(g.entity_types || '[]')
     .map(t => TYPES[t] ? { label: TYPES[t], slug: slugify(TYPES[t]) } : null)
     .filter(Boolean);
 
   const relatedLinks = [
+    estatal ? `<a href="${ESTATALES_PATH}">Más subvenciones estatales</a>` : '',
     ccaaSlug ? `<a href="/subvenciones/${ccaaSlug}/">Más subvenciones en ${esc(g.region)}</a>` : '',
     provinceSlug ? `<a href="/subvenciones/${ccaaSlug}/${provinceSlug}/">Más subvenciones en ${esc(g.province)}</a>` : '',
     categorySlug ? `<a href="/subvenciones/${categorySlug}/">Más subvenciones de ${esc(g.category.toLowerCase())}</a>` : '',
@@ -105,6 +120,7 @@ function renderPage(g) {
   const breadcrumbItems = [
     { '@type': 'ListItem', position: 1, name: 'Inicio', item: BASE_URL + '/' },
   ];
+  if (estatal) breadcrumbItems.push({ '@type': 'ListItem', position: 2, name: 'Subvenciones estatales', item: BASE_URL + ESTATALES_PATH });
   if (ccaaSlug) breadcrumbItems.push({ '@type': 'ListItem', position: breadcrumbItems.length + 1, name: g.region, item: `${BASE_URL}/subvenciones/${ccaaSlug}/` });
   if (categorySlug) breadcrumbItems.push({ '@type': 'ListItem', position: breadcrumbItems.length + 1, name: g.category, item: `${BASE_URL}/subvenciones/${categorySlug}/` });
   breadcrumbItems.push({ '@type': 'ListItem', position: breadcrumbItems.length + 1, name: head, item: canonical });
@@ -117,7 +133,7 @@ function renderPage(g) {
       description: g.ai_summary || description,
       url: canonical,
       ...(g.granting_body ? { funder: { '@type': 'Organization', name: g.granting_body } } : {}),
-      ...(g.amount_max ? { amount: { '@type': 'MonetaryAmount', currency: 'EUR', value: g.amount_max } } : {}),
+      ...(realAmount(g.amount_max) ? { amount: { '@type': 'MonetaryAmount', currency: 'EUR', value: g.amount_max } } : {}),
       ...(g.deadline_date && g.status !== 'CLOSED' ? { applicationDeadline: g.deadline_date } : {}),
     },
     {
@@ -135,50 +151,46 @@ function renderPage(g) {
 <title>${esc(title)}</title>
 <meta name="description" content="${esc(description.slice(0, 160))}">
 <link rel="canonical" href="${esc(canonical)}">
-${indexable ? '' : '<meta name="robots" content="noindex, follow">'}
+<meta name="robots" content="${indexable ? 'index, follow' : 'noindex, follow'}">
 <link rel="icon" type="image/png" href="/favicon.png">
 <link rel="stylesheet" href="/styles.css">
 ${ALERT_ASSETS}
 <script type="application/ld+json">${JSON.stringify(jsonLd)}</script>
 </head>
 <body>
-<header class="site">
-  <div class="wrap">
-    <a class="logo" href="/">Plazo<span class="b">Abierto</span></a>
-    <nav>
-      <div class="tabs">
-        <a class="tab on" href="/">Subvenciones</a>
-        <a class="tab" href="/licitaciones">Licitaciones</a>
-        <a class="tab" href="/negocios">Negocios</a>
-      </div>
-      <a class="btn ghost" href="/entrar">Entrar</a>
-    </nav>
-  </div>
-</header>
+${siteHeader()}
 
 <main class="wrap" style="max-width:720px;padding-top:1.5rem;padding-bottom:3rem">
   <nav class="muted" style="font-size:.82rem;margin-bottom:.6rem">
-    <a href="/">Inicio</a>${ccaaSlug ? ` › <a href="/subvenciones/${ccaaSlug}/">${esc(g.region)}</a>` : ''}${categorySlug ? ` › <a href="/subvenciones/${categorySlug}/">${esc(g.category)}</a>` : ''} › <span>${esc(head)}</span>
+    <a href="/">Inicio</a>${estatal ? ` › <a href="${ESTATALES_PATH}">Subvenciones estatales</a>` : ''}${ccaaSlug ? ` › <a href="/subvenciones/${ccaaSlug}/">${esc(g.region)}</a>` : ''}${categorySlug ? ` › <a href="/subvenciones/${categorySlug}/">${esc(g.category)}</a>` : ''} › <span>${esc(head)}</span>
   </nav>
 
   ${closedBanner}
 
-  <p class="org muted">${esc(g.granting_body || '')}</p>
   <h1>${esc(head)}</h1>
-  ${g.plain_title && g.title !== g.plain_title ? `<p class="official">Título oficial: ${esc(g.title)}</p>` : ''}
 
-  <div class="card">
-    <p><strong>Quién puede pedirla</strong><br>${esc(quienPuede)}</p>
-    <p><strong>Cuánto</strong><br>${esc(amount)}</p>
-    <p><strong>Hasta cuándo</strong><br>${esc(deadlineLabel(g))}${g.deadline_date ? ` (${esc(g.deadline_date)})` : ''}</p>
-    <p><strong>Cómo se solicita</strong><br>${extras || 'Consulta las bases oficiales.'}</p>
-    <p><strong>Fuente oficial</strong><br><a href="${esc(g.source_url)}" target="_blank" rel="noopener">Ver convocatoria en el BDNS →</a></p>
-  </div>
-
+  <!-- Our plain-language guide first; the official BDNS record after it. -->
   ${g.ai_summary ? `<p class="desc">${esc(g.ai_summary)}</p>` : ''}
+  <p class="key-facts">
+    <span class="chip"><span class="k">Cuánto</span><span class="v">${esc(amount)}</span></span>
+    <span class="chip"><span class="k">Hasta cuándo</span><span class="v">${esc(deadlineLabel(g))}${g.deadline_date ? ` (${esc(g.deadline_date)})` : ''}</span></span>
+  </p>
 
   ${explainerBlock}
+  ${explainer ? '' : `<div class="card"><p><strong>Quién puede pedirla</strong><br>${esc(quienPuede)}</p></div>`}
   ${checklistBlock}
+  ${relatedOpenBlock}
+
+  <div class="card">
+    <h2>Datos oficiales de la convocatoria</h2>
+    ${g.granting_body ? `<p><strong>Organismo convocante</strong><br>${esc(g.granting_body)}</p>` : ''}
+    ${g.plain_title && g.title !== g.plain_title ? `<p><strong>Título oficial</strong><br>${esc(g.title)}</p>` : ''}
+    ${explainer ? `<p><strong>Quién puede pedirla</strong><br>${esc(quienPuede)}</p>` : ''}
+    <p><strong>Cómo se solicita</strong><br>${extras || 'Consulta las bases oficiales.'}</p>
+    <p><a class="btn" href="${esc(g.source_url)}" target="_blank" rel="noopener">Ver el texto original de la convocatoria →</a><br>
+      <span class="official">Base de Datos Nacional de Subvenciones, n.º ${esc(g.bdns_ref)}</span></p>
+  </div>
+
   ${relatedBlock}
 
   ${alertBox(isBusinessGrant(g) ? 'negocios' : 'subvenciones', {
@@ -188,6 +200,7 @@ ${ALERT_ASSETS}
   (BDNS). Ante cualquier duda, prevalece siempre el texto de la convocatoria oficial
   enlazada arriba. Publicado: ${esc((g.created_at || '').slice(0, 10))}.</p>
 </main>
+${siteFooter()}
 </body>
 </html>`;
 }
@@ -200,6 +213,20 @@ seoRouter.get('/subvenciones/:slugId', (req, res, next) => {
     FROM grant_row gr LEFT JOIN grant_eligibility e ON e.grant_id = gr.id
     WHERE gr.bdns_ref = ? AND gr.published = 1`).get(m[2]);
   if (!g) return next();
+  // Direct awards and calls closed long ago are not shown: 410 Gone, so search engines drop
+  // the address, with the way to the open grants for whoever followed an old link.
+  if (!isGrantLive(g)) {
+    return res.status(410).set('Content-Type', 'text/html; charset=utf-8').send(pageShell({
+      title: 'Convocatoria no disponible | Plazo Abierto',
+      description: 'Esta convocatoria ya no está disponible. Consulta las subvenciones con el plazo abierto.',
+      canonical: BASE_URL + '/', robots: 'noindex, follow',
+      breadcrumbHtml: '<a href="/">Inicio</a>',
+      bodyHtml: `<h1>Esta convocatoria ya no está disponible</h1>
+        <p>Solo mostramos convocatorias que se pueden pedir. Mira las que tienen el plazo abierto:</p>
+        <p><a class="btn" href="/">Ver subvenciones abiertas</a></p>
+        ${hubNav()}`,
+    }));
+  }
   res.set('Content-Type', 'text/html; charset=utf-8');
-  res.send(renderPage(g));
+  res.send(renderPage(g, g.status === 'CLOSED' ? relatedOpenGrants(g) : []));
 });

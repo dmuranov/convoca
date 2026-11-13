@@ -52,28 +52,16 @@ export const BENEFICIARIO_SLUGS = new Map(
   Object.entries(BENEFICIARIO_TYPES).map(([enumVal, label]) => [slugify(label), { enumVal, label }])
 );
 
-export function daysLeft(deadline) {
+// Calendar days until the deadline, by the date in Spain: 0 on the deadline day itself, 1 the
+// day before. It used to round up the hours left until 23:59, so the last day read "quedan 1
+// días" and "último día" never showed.
+const MADRID_DAY = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Madrid' });
+export function daysLeft(deadline, now = new Date()) {
   if (!deadline) return null;
-  return Math.ceil((new Date(deadline + 'T23:59:59') - Date.now()) / 86400000);
+  return Math.round((Date.parse(String(deadline).slice(0, 10)) - Date.parse(MADRID_DAY.format(now))) / 86400000);
 }
-
-// Minimal reusable list-item markup for hub pages - deliberately lighter than the
-// homepage's full grant-card (no explainer/checklist toggles, this page's job is to rank
-// and hand the visitor off to the ficha, not repeat its whole content).
-export function grantListItem(g) {
-  const d = daysLeft(g.deadline_date);
-  const badge = d != null
-    ? `<span class="badge-days ${d <= 10 ? 'soon' : ''}">${d <= 0 ? 'último día' : `quedan ${d} días`}</span>`
-    : (g.is_rolling ? '<span class="badge-days">plazo continuo</span>' : '<span class="badge-days soon">plazo por confirmar</span>');
-  const amount = g.amount_max ? `hasta ${eur(g.amount_max)}` : (g.budget_total ? `bolsa de ${eur(g.budget_total)}` : 'según bases');
-  const head = g.plain_title || g.title;
-  return `<article class="grant-card">
-    <div class="org">${esc(g.granting_body || '')} ${badge}</div>
-    <h4><a href="${esc(grantPath(g))}">${esc(head)}</a></h4>
-    <p class="desc">${esc(g.ai_summary || '')}</p>
-    <div><span class="chip"><span class="k">Cuantía</span><span class="v">${esc(amount)}</span></span></div>
-  </article>`;
-}
+// "último día" / "queda 1 día" / "quedan 12 días".
+export const daysLabel = (d) => d <= 0 ? 'último día' : d === 1 ? 'queda 1 día' : `quedan ${d} días`;
 
 // The "Avísame de nuevas convocatorias como esta" box (web/alertas.js fills it in; it stays
 // empty and invisible while alerts are switched off). Filters are pre-filled from the page.
@@ -82,40 +70,3 @@ export function alertBox(section, filters = {}) {
   return `<div class="alerta-box" data-alerta data-section="${esc(section)}" data-filters="${esc(JSON.stringify(f))}" hidden></div>`;
 }
 export const ALERT_ASSETS = '<link rel="stylesheet" href="/alertas.css"><script src="/alertas.js" defer></script>';
-
-export function pageShell({ title, description, canonical, jsonLd, breadcrumbHtml, bodyHtml, robots }) {
-  return `<!doctype html>
-<html lang="es">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>${esc(title)}</title>
-<meta name="description" content="${esc(description.slice(0, 160))}">
-<link rel="canonical" href="${esc(canonical)}">
-<link rel="icon" type="image/png" href="/favicon.png">
-<link rel="stylesheet" href="/styles.css">
-${robots ? `<meta name="robots" content="${esc(robots)}">` : ''}
-${ALERT_ASSETS}
-${jsonLd ? `<script type="application/ld+json">${JSON.stringify(jsonLd)}</script>` : ''}
-</head>
-<body>
-<header class="site">
-  <div class="wrap">
-    <a class="logo" href="/">Plazo<span class="b">Abierto</span></a>
-    <nav>
-      <div class="tabs">
-        <a class="tab on" href="/">Subvenciones</a>
-        <a class="tab" href="/licitaciones">Licitaciones</a>
-        <a class="tab" href="/negocios">Negocios</a>
-      </div>
-      <a class="btn ghost" href="/entrar">Entrar</a>
-    </nav>
-  </div>
-</header>
-<main class="wrap" style="padding-top:1.5rem;padding-bottom:3rem">
-  <nav class="muted" style="font-size:.82rem;margin-bottom:.6rem">${breadcrumbHtml}</nav>
-  ${bodyHtml}
-</main>
-</body>
-</html>`;
-}

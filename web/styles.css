@@ -116,7 +116,7 @@ h1 { font-size: 2rem; line-height: 1.15; }
   background: var(--warn-soft); color: var(--warn); border: 1px solid var(--warn);
   border-radius: var(--radius); padding: .8rem 1rem; margin: 1rem 0 1.4rem; font-size: .92rem;
 }
-.explain-btn { margin: .2rem 0 .5rem; }
+.explainer-title { font-weight: 700; font-size: .85rem; color: var(--accent-dark); margin: .2rem 0 .35rem; }
 .explainer {
   background: var(--accent-soft); border-radius: 10px;
   padding: .8rem .9rem; margin: 0 0 .7rem; font-size: .87rem; line-height: 1.5;
@@ -180,6 +180,26 @@ footer.site {
   border-top: 1px solid var(--line); margin-top: 3rem; padding: 1.6rem 0 2.2rem;
   color: var(--muted); font-size: .85rem; text-align: center;
 }
+/* Footer link columns and the links between hubs (src/siteChrome.js). `nav` is flex for the
+   header, so both say what they are here. */
+nav.footer-links, nav.hub-nav { display: block; text-align: left; }
+nav.footer-links { margin: 0 0 1.2rem; }
+.links-group { margin: 0 0 .6rem; line-height: 1.9; }
+.links-group strong { display: block; color: var(--ink); font-size: .85rem; }
+.links-group a { display: inline-block; margin-right: .9rem; white-space: nowrap; }
+nav.hub-nav {
+  background: var(--card); border: 1px solid var(--line); border-radius: var(--radius);
+  padding: .9rem 1.1rem .4rem; margin: 0 0 1.4rem; font-size: .9rem;
+}
+/* Hub intro (src/hubIntro.js) and the grant page's own blocks (src/routes/seo.js). */
+.hub-intro { max-width: 820px; margin: 0 0 1.2rem; }
+.key-facts { margin: .8rem 0 0; }
+.related-open ul { margin: 0; padding-left: 1.1rem; }
+/* The wider tiers under a hub's own cards: short lists (grantLine, src/siteChrome.js). */
+.hub-also { margin: 2rem 0 0; }
+.hub-also ul { margin: 0 0 .8rem; padding-left: 1.1rem; }
+.hub-also li { margin: 0 0 .45rem; }
+.related-open li { margin: 0 0 .5rem; }
 
 /* Contact form. .hp is the honeypot: off-screen rather than display:none, because some
    bots skip fields that are display:none but still fill ones they can "see" in the DOM.
