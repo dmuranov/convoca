@@ -28,11 +28,12 @@ export function grantListItem(g) {
     <div class="org">${esc(g.granting_body || '')} ${badge}</div>
     <h4><a href="${esc(page)}">${esc(head)}</a></h4>
     ${hook ? `<p class="desc">${esc(hook)}</p>` : ''}
-    <div><span class="chip"><span class="k">Cuantía</span><span class="v">${esc(amountLabel(g))}</span></span></div>
-    <div class="spacer"></div>
-    ${isEnriched(g) ? `<a class="btn ghost block" href="${esc(page)}#explicacion">Explícamelo fácil</a>` : ''}
-    ${papers ? `<a class="btn ghost block" href="${esc(page)}#papeles">¿Qué papeles necesito?</a>` : ''}
-    ${g.source_url ? `<a class="btn block" target="_blank" rel="noopener" href="${esc(g.source_url)}">Texto original de la convocatoria →</a>` : ''}
+    <div class="facts"><span class="chip"><span class="k">Cuantía</span><span class="v">${esc(amountLabel(g))}</span></span></div>
+    <div class="actions">
+      ${isEnriched(g) ? `<a class="btn ghost block" href="${esc(page)}#explicacion">Explícamelo fácil</a>` : ''}
+      ${papers ? `<a class="btn ghost block" href="${esc(page)}#papeles">¿Qué papeles necesito?</a>` : ''}
+      ${g.source_url ? `<a class="btn block" target="_blank" rel="noopener" href="${esc(g.source_url)}">Texto original de la convocatoria →</a>` : ''}
+    </div>
   </article>`;
 }
 

@@ -19,8 +19,9 @@
   background: radial-gradient(ellipse 80% 60% at 50% -10%, #ffe0cc 0%, rgba(255, 246, 240, 0) 70%);
 }
 
-/* Complejidad badge - specific to this tab, so it lives here rather than styles.css. */
-.chip-complejidad { font-weight: 700; }
-.chip-complejidad.baja { background: #e3f6ea; color: #1e7a45; border-color: #bfe8cf; }
-.chip-complejidad.media { background: #fff3d6; color: #96650a; border-color: #ffe3a3; }
-.chip-complejidad.alta { background: var(--warn-soft); color: var(--warn); border-color: #f3c4dd; }
+/* Complejidad value in a card's facts list - specific to this tab, so it lives here rather
+   than styles.css. A small coloured pill, not the whole row. */
+.chip-complejidad { font-weight: 700; border-radius: 999px; padding: 0 .55rem; text-transform: capitalize; }
+.chip-complejidad.baja { background: #e3f6ea; color: #1e7a45; }
+.chip-complejidad.media { background: #fff3d6; color: #96650a; }
+.chip-complejidad.alta { background: var(--warn-soft); color: var(--warn); }
