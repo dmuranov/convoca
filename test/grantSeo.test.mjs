@@ -51,9 +51,9 @@ test('index: shown and with our explanation; never a raw BDNS record', () => {
   assert.ok(!isGrantIndexable({ status: 'OPEN', plain_explainer: 'not json' }));
 });
 
-test('days left: último día, queda 1 día, quedan n días', () => {
+test('days left: plazo terminado, último día, queda 1 día, quedan n días', () => {
   assert.equal(daysLabel(0), 'último día');
-  assert.equal(daysLabel(-1), 'último día');
+  assert.equal(daysLabel(-1), 'plazo terminado');
   assert.equal(daysLabel(1), 'queda 1 día');
   assert.equal(daysLabel(2), 'quedan 2 días');
 });

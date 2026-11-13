@@ -159,7 +159,7 @@ function render() {
   document.getElementById('grid').innerHTML = list.map((g, i) => {
     const d = daysLeft(g.deadline);
     const badge = g.is_rolling ? '<span class="badge-days">plazo abierto</span>'
-      : d != null ? `<span class="badge-days ${d <= 5 ? 'soon' : ''}">${d <= 0 ? 'último día' : d === 1 ? 'queda 1 día' : `quedan ${d} días`}${g.deadline_estimated ? '*' : ''}</span>`
+      : d != null ? `<span class="badge-days ${d <= 5 ? 'soon' : ''}">${d < 0 ? 'plazo terminado' : d === 0 ? 'último día' : d === 1 ? 'queda 1 día' : `quedan ${d} días`}${g.deadline_estimated ? '*' : ''}</span>`
       : '<span class="badge-days soon">plazo por confirmar</span>';
     const real = (n) => Number(n) > 0.01;   // BDNS writes 0.01 where a call has no money - mirrors src/grantSeo.js
     const amount = real(g.amount_max) ? `hasta ${eur(g.amount_max)}` : real(g.budget_total) ? `${eur(g.budget_total)} en total`

@@ -111,7 +111,7 @@ function render() {
     // fecha_limite is a literal field straight from PLACSP, never computed - no
     // estimated-date asterisk needed here the way grant_row's deadline sometimes does.
     const badge = d != null
-      ? `<span class="badge-days ${d <= 5 ? 'soon' : ''}">${d <= 0 ? 'último día' : d === 1 ? 'queda 1 día' : `quedan ${d} días`}</span>`
+      ? `<span class="badge-days ${d <= 5 ? 'soon' : ''}">${d < 0 ? 'plazo terminado' : d === 0 ? 'último día' : d === 1 ? 'queda 1 día' : `quedan ${d} días`}</span>`
       : '<span class="badge-days soon">plazo por confirmar</span>';
 
     const amount = l.presupuesto_base

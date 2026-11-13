@@ -201,7 +201,7 @@ function render() {
     const est = g.deadline_estimated ? '*' : '';
     const estTitle = g.deadline_estimated ? ' title="Fecha estimada: puede variar según festivos locales y el cómputo de días hábiles. Confírmala en las bases oficiales."' : '';
     const badge = d != null
-      ? `<span class="badge-days ${d <= 10 ? 'soon' : ''}"${estTitle}>${d <= 0 ? 'último día' : d === 1 ? 'queda 1 día' : `quedan ${d} días`}${est}</span>`
+      ? `<span class="badge-days ${d <= 10 ? 'soon' : ''}"${estTitle}>${d < 0 ? 'plazo terminado' : d === 0 ? 'último día' : d === 1 ? 'queda 1 día' : `quedan ${d} días`}${est}</span>`
       : (g.is_rolling ? '<span class="badge-days">plazo continuo</span>' : '<span class="badge-days soon">plazo por confirmar</span>');
     const types = JSON.parse(g.entity_types || '[]').map(t => TYPES[t] || t).join(', ');
     let funds = JSON.parse(g.funds_what || '[]').slice(0, 2).join(', ');

@@ -62,8 +62,8 @@ export function daysLeft(deadline, now = new Date()) {
   if (!deadline) return null;
   return Math.round((Date.parse(String(deadline).slice(0, 10)) - Date.parse(MADRID_DAY.format(now))) / 86400000);
 }
-// "último día" / "queda 1 día" / "quedan 12 días".
-export const daysLabel = (d) => d <= 0 ? 'último día' : d === 1 ? 'queda 1 día' : `quedan ${d} días`;
+// "plazo terminado" (deadline passed) / "último día" / "queda 1 día" / "quedan 12 días".
+export const daysLabel = (d) => d < 0 ? 'plazo terminado' : d === 0 ? 'último día' : d === 1 ? 'queda 1 día' : `quedan ${d} días`;
 
 // The "Avísame de nuevas convocatorias como esta" box (web/alertas.js fills it in; it stays
 // empty and invisible while alerts are switched off). Filters are pre-filled from the page.
