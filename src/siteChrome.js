@@ -2,7 +2,7 @@
 // between hubs. Apart from src/seoUtils.js because these need to know which hubs exist right
 // now (src/seoQueries.js): a link is only printed to a hub that answers, never to a 404.
 import { esc, slugify, grantPath, daysLeft, daysLabel, ALERT_ASSETS, CCAA_SLUGS, PROVINCE_CCAA, CATEGORIES } from './seoUtils.js';
-import { amountLabel, cardHook } from './grantSeo.js';
+import { amountLabel, cardHook, isEnriched } from './grantSeo.js';
 import { ccaaHub, provinceHub, categoryHub, estatalesHub } from './seoQueries.js';
 
 export const ESTATALES_PATH = '/subvenciones/estatales/';
@@ -19,11 +19,20 @@ export function grantListItem(g) {
     : (g.is_rolling ? '<span class="badge-days">plazo continuo</span>' : '<span class="badge-days soon">plazo por confirmar</span>');
   const head = g.plain_title || g.title;
   const hook = cardHook(g);
+  // The same three buttons as a card on the home page. Here the first two go to that part
+  // of the grant's own page instead of opening in place: the text stays on one page only.
+  const page = grantPath(g);
+  let papers = false;
+  try { papers = JSON.parse(g.plain_checklist || '[]').length > 0; } catch { papers = false; }
   return `<article class="grant-card">
     <div class="org">${esc(g.granting_body || '')} ${badge}</div>
-    <h4><a href="${esc(grantPath(g))}">${esc(head)}</a></h4>
+    <h4><a href="${esc(page)}">${esc(head)}</a></h4>
     ${hook ? `<p class="desc">${esc(hook)}</p>` : ''}
     <div><span class="chip"><span class="k">Cuantía</span><span class="v">${esc(amountLabel(g))}</span></span></div>
+    <div class="spacer"></div>
+    ${isEnriched(g) ? `<a class="btn ghost block" href="${esc(page)}#explicacion">Explícamelo fácil</a>` : ''}
+    ${papers ? `<a class="btn ghost block" href="${esc(page)}#papeles">¿Qué papeles necesito?</a>` : ''}
+    ${g.source_url ? `<a class="btn block" target="_blank" rel="noopener" href="${esc(g.source_url)}">Texto original de la convocatoria →</a>` : ''}
   </article>`;
 }
 

@@ -67,7 +67,7 @@ function renderPage(g, related = []) {
     </div>` : '';
 
   const explainerBlock = explainer ? `
-    <div class="card">
+    <div class="card" id="explicacion">
       <h2>Explicación fácil</h2>
       ${[['¿Para qué es?', explainer.para_que], ['¿Cuánto dan?', amount === 'según bases' ? null : amount.charAt(0).toUpperCase() + amount.slice(1) + '.'],
          ['¿Quién puede pedirla?', explainer.quien_puede],
@@ -78,7 +78,7 @@ function renderPage(g, related = []) {
     </div>` : '';
 
   const checklistBlock = checklist && checklist.length ? `
-    <div class="card">
+    <div class="card" id="papeles">
       <h2>¿Qué papeles necesito?</h2>
       ${checklist.map(d => `<p><strong>${esc(d.documento)}</strong><br>${esc(d.para_que_sirve)}<br>
         <em>Dónde: ${esc(d.donde_conseguirlo)}</em></p>`).join('')}
@@ -187,7 +187,7 @@ ${siteHeader()}
     ${g.plain_title && g.title !== g.plain_title ? `<p><strong>Título oficial</strong><br>${esc(g.title)}</p>` : ''}
     ${explainer ? `<p><strong>Quién puede pedirla</strong><br>${esc(quienPuede)}</p>` : ''}
     <p><strong>Cómo se solicita</strong><br>${extras || 'Consulta las bases oficiales.'}</p>
-    <p><a class="btn" href="${esc(g.source_url)}" target="_blank" rel="noopener">Ver el texto original de la convocatoria →</a><br>
+    <p><a class="btn" href="${esc(g.source_url)}" target="_blank" rel="noopener">Texto original de la convocatoria →</a><br>
       <span class="official">Base de Datos Nacional de Subvenciones, n.º ${esc(g.bdns_ref)}</span></p>
   </div>
 

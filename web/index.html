@@ -213,13 +213,13 @@ function render() {
     const official = g.plain_title && g.title !== g.plain_title
       ? `<p class="official">Título oficial: ${esc(g.title)}</p>` : '';
 
-    // The call in plain language, shown as the card itself (it used to sit behind an
-    // "Explícamelo fácil" button): what it is for, who can apply, what it covers, how to apply.
+    // The card shows the short summary; under it, three buttons: the call explained in plain
+    // language, the papers needed (both open in place), and the official text of the call.
     let ex = null;
     try { ex = g.plain_explainer ? JSON.parse(g.plain_explainer) : null; } catch { ex = null; }
     const explainer = ex ? `
-      <p class="explainer-title">En castellano llano</p>
-      <div class="explainer">
+      <button class="btn ghost block panel-btn" type="button" aria-expanded="false" aria-controls="ex-${i}">Explícamelo fácil</button>
+      <div class="explainer" id="ex-${i}" hidden>
         ${[['¿Para qué es?', ex.para_que], ['¿Quién puede pedirla?', ex.quien_puede],
            ['¿Qué cubre?', ex.que_cubre], ['¿Qué no cubre?', ex.que_no_cubre],
            ['¿Cómo se pide?', ex.como_se_pide]]
@@ -229,12 +229,11 @@ function render() {
         Ante cualquier duda manda la convocatoria oficial.</p>
       </div>` : '';
 
-    // The papers needed, shown too (it used to sit behind a "¿Qué papeles necesito?" button).
     let checklist = null;
     try { checklist = g.plain_checklist ? JSON.parse(g.plain_checklist) : null; } catch { checklist = null; }
     const papeles = checklist && checklist.length ? `
-      <p class="explainer-title">Qué papeles necesitas</p>
-      <div class="explainer">
+      <button class="btn ghost block panel-btn" type="button" aria-expanded="false" aria-controls="pp-${i}">¿Qué papeles necesito?</button>
+      <div class="explainer" id="pp-${i}" hidden>
         ${checklist.map(d => `<p><strong>${esc(d.documento)}</strong><br>${esc(d.para_que_sirve)}<br>
           <em>Dónde: ${esc(d.donde_conseguirlo)}</em></p>`).join('')}
         <p class="official">Lista redactada automáticamente a partir de las bases oficiales.
@@ -259,10 +258,10 @@ function render() {
         ${types ? `<span class="chip"><span class="k">Pueden pedirla</span><span class="v">${esc(types)}</span></span>` : ''}
       </div>
       <div style="margin:.3rem 0 .8rem">${g.category ? `<span class="tag">${esc(g.category)}</span>` : ''}${funds ? `<span class="tag">${esc(funds)}</span>` : ''}</div>
+      <div class="spacer"></div>
       ${explainer}
       ${papeles}
-      <div class="spacer"></div>
-      <a class="btn block" target="_blank" rel="noopener" href="${esc(g.source_url)}">Ver el texto original de la convocatoria →</a>
+      <a class="btn block" target="_blank" rel="noopener" href="${esc(g.source_url)}">Texto original de la convocatoria →</a>
       ${extras ? `<p class="official links">${extras}</p>` : ''}
       ${official}
     </article>`;
@@ -323,6 +322,15 @@ placeMenu.addEventListener('click', (ev) => {
 placeClear.addEventListener('click', () => setPlace(null));
 document.addEventListener('click', (ev) => {
   if (!ev.target.closest('.place-box')) placeMenu.hidden = true;
+});
+
+// The two panel buttons of a card. Delegated so it survives every re-render.
+document.getElementById('grid').addEventListener('click', (ev) => {
+  const btn = ev.target.closest('.panel-btn');
+  if (!btn) return;
+  const panel = document.getElementById(btn.getAttribute('aria-controls'));
+  panel.hidden = !panel.hidden;
+  btn.setAttribute('aria-expanded', String(!panel.hidden));
 });
 
 (async () => {

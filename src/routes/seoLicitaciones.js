@@ -112,7 +112,7 @@ ${siteHeader('licitaciones')}
     <p><strong>Tipo / procedimiento</strong><br>${esc([l.tipo_contrato, l.procedimiento].filter(Boolean).join(' · ') || 'Consulta los pliegos oficiales')}</p>
     ${l.lugar ? `<p><strong>Lugar de ejecución</strong><br>${esc(l.lugar)}</p>` : ''}
     ${complejidad}
-    <p><a class="btn" href="${esc(l.source_url)}" target="_blank" rel="noopener">Ver el texto original de la licitación →</a><br>
+    <p><a class="btn" href="${esc(l.source_url)}" target="_blank" rel="noopener">Texto original de la licitación →</a><br>
       <span class="official">Plataforma de Contratación del Sector Público</span></p>
     ${pliegoLinks ? `<p><strong>Pliegos</strong><br>${pliegoLinks}</p>` : ''}
   </div>

@@ -122,23 +122,24 @@ function render() {
       ? `<span class="chip chip-complejidad ${esc(l.complejidad)}" title="${esc(l.complejidad_motivo || '')}">Complejidad: ${esc(l.complejidad)}</span>`
       : '';
 
-    // The tender in plain language, shown as the card itself - same as the subvenciones tab.
+    // The card shows the short summary and who it suits; under it, three buttons - same as
+    // the subvenciones tab: the tender in plain language, what is asked for (both open in
+    // place), and the official text.
     let tareas = []; try { tareas = JSON.parse(l.que_hay_que_hacer || '[]'); } catch {}
-    const explainer = (l.quien_puede_interesarle || tareas.length) ? `
-      <p class="explainer-title">En castellano llano</p>
-      <div class="explainer">
-        ${l.quien_puede_interesarle ? `<p><strong>¿A quién le interesa?</strong><br>${esc(l.quien_puede_interesarle)}</p>` : ''}
-        ${tareas.length ? `<p><strong>¿Qué hay que hacer?</strong></p><ul>${tareas.map(t => `<li>${esc(t)}</li>`).join('')}</ul>` : ''}
+    const explainer = tareas.length ? `
+      <button class="btn ghost block panel-btn" type="button" aria-expanded="false" aria-controls="ex-${i}">Explícamelo fácil</button>
+      <div class="explainer" id="ex-${i}" hidden>
+        <p><strong>¿Qué hay que hacer?</strong></p><ul>${tareas.map(t => `<li>${esc(t)}</li>`).join('')}</ul>
         <p class="official">Resumen redactado automáticamente a partir del anuncio y los pliegos.
         Ante cualquier duda consulta la licitación oficial.</p>
       </div>` : '';
 
-    // The requirements, shown too - requisitos_clave is the closest PLACSP has to a
-    // document checklist (the feed doesn't itemise paperwork the way BDNS's bases do).
+    // requisitos_clave is the closest PLACSP has to a document checklist (the feed doesn't
+    // itemise paperwork the way BDNS's bases do).
     let requisitos = []; try { requisitos = JSON.parse(l.requisitos_clave || '[]'); } catch {}
     const papeles = requisitos.length ? `
-      <p class="explainer-title">Qué te piden</p>
-      <div class="explainer">
+      <button class="btn ghost block panel-btn" type="button" aria-expanded="false" aria-controls="pp-${i}">¿Qué papeles necesito?</button>
+      <div class="explainer" id="pp-${i}" hidden>
         ${requisitos.map(r => `<p>${esc(r)}</p>`).join('')}
         <p class="official">Lista redactada automáticamente a partir de los pliegos.
         Ante cualquier duda consulta la licitación oficial.</p>
@@ -151,6 +152,7 @@ function render() {
       <div class="org">${esc(l.organo || '')} ${badge}</div>
       <h4><a href="${esc(licitacionPath(l))}">${esc(l.titulo || l.expediente)}</a></h4>
       <p class="desc">${esc(l.resumen || '')}</p>
+      ${l.quien_puede_interesarle ? `<p class="desc"><strong>A quién le interesa:</strong> ${esc(l.quien_puede_interesarle)}</p>` : ''}
       <div>
         <span class="chip"><span class="k">Importe</span><span class="v">${amount}</span></span>
         ${l.lugar ? `<span class="chip"><span class="k">Lugar</span><span class="v">${esc(l.lugar)}</span></span>` : ''}
@@ -158,10 +160,10 @@ function render() {
         ${complejidad}
       </div>
       <div style="margin:.3rem 0 .8rem">${l.tipo_contrato ? `<span class="tag">${esc(l.tipo_contrato)}</span>` : ''}${l.procedimiento ? `<span class="tag">${esc(l.procedimiento)}</span>` : ''}</div>
+      <div class="spacer"></div>
       ${explainer}
       ${papeles}
-      <div class="spacer"></div>
-      <a class="btn block" target="_blank" rel="noopener" href="${esc(l.source_url)}">Ver el texto original de la licitación →</a>
+      <a class="btn block" target="_blank" rel="noopener" href="${esc(l.source_url)}">Texto original de la licitación →</a>
       ${pliegoLinks ? `<p class="official links">${pliegoLinks}</p>` : ''}
     </article>`;
   }).join('');
@@ -180,6 +182,15 @@ document.getElementById('filters-ccaa').addEventListener('click', (ev) => {
   activeCcaa = b.dataset.ccaa || null;
   document.querySelectorAll('#filters-ccaa button').forEach(x => x.classList.toggle('on', x === b));
   render();
+});
+
+// The two panel buttons of a card. Delegated so it survives every re-render.
+document.getElementById('grid').addEventListener('click', (ev) => {
+  const btn = ev.target.closest('.panel-btn');
+  if (!btn) return;
+  const panel = document.getElementById(btn.getAttribute('aria-controls'));
+  panel.hidden = !panel.hidden;
+  btn.setAttribute('aria-expanded', String(!panel.hidden));
 });
 
 (async function load() {

@@ -156,7 +156,7 @@ function render() {
     .filter(g => !onlyLeader || g.leader)
     .filter(g => !place || !g.region || g.region === 'Toda España' || g.region === place.ccaa);
   document.getElementById('empty').hidden = !!list.length;
-  document.getElementById('grid').innerHTML = list.map(g => {
+  document.getElementById('grid').innerHTML = list.map((g, i) => {
     const d = daysLeft(g.deadline);
     const badge = g.is_rolling ? '<span class="badge-days">plazo abierto</span>'
       : d != null ? `<span class="badge-days ${d <= 5 ? 'soon' : ''}">${d <= 0 ? 'último día' : d === 1 ? 'queda 1 día' : `quedan ${d} días`}${g.deadline_estimated ? '*' : ''}</span>`
@@ -164,13 +164,14 @@ function render() {
     const real = (n) => Number(n) > 0.01;   // BDNS writes 0.01 where a call has no money - mirrors src/grantSeo.js
     const amount = real(g.amount_max) ? `hasta ${eur(g.amount_max)}` : real(g.budget_total) ? `${eur(g.budget_total)} en total`
       : [g.amount_max, g.budget_total].some(n => n != null && Number(n) > 0) ? 'Premio honorífico / sin dotación económica' : 'según bases';
-    // The call in plain language, shown as the card itself - same as the subvenciones tab
-    // (web/index.html): what it is for, who can apply, what it covers, how to apply.
+    // The card shows the short summary and who can apply; under it, three buttons - same as
+    // the subvenciones tab (web/index.html): the call in plain language, the papers needed
+    // (both open in place), and the official text of the call.
     let ex = null;
     try { ex = g.plain_explainer ? JSON.parse(g.plain_explainer) : null; } catch { ex = null; }
     const explainer = ex ? `
-      <p class="explainer-title">En castellano llano</p>
-      <div class="explainer">
+      <button class="btn ghost block panel-btn" type="button" aria-expanded="false" aria-controls="ex-${i}">Explícamelo fácil</button>
+      <div class="explainer" id="ex-${i}" hidden>
         ${[['¿Para qué es?', ex.para_que], ['¿Quién puede pedirla?', ex.quien_puede],
            ['¿Qué cubre?', ex.que_cubre], ['¿Qué no cubre?', ex.que_no_cubre],
            ['¿Cómo se pide?', ex.como_se_pide]]
@@ -180,11 +181,14 @@ function render() {
         Ante cualquier duda manda la convocatoria oficial.</p>
       </div>` : '';
 
+    // Who can apply, on the card itself: the first sentence of the explanation.
+    const who = ex && ex.quien_puede ? (/^.{20,}?[.!?](?=\s|$)/.exec(ex.quien_puede.trim())?.[0] || ex.quien_puede.trim()) : '';
+
     let checklist = null;
     try { checklist = g.plain_checklist ? JSON.parse(g.plain_checklist) : null; } catch { checklist = null; }
     const papeles = checklist && checklist.length ? `
-      <p class="explainer-title">Qué papeles necesitas</p>
-      <div class="explainer">
+      <button class="btn ghost block panel-btn" type="button" aria-expanded="false" aria-controls="pp-${i}">¿Qué papeles necesito?</button>
+      <div class="explainer" id="pp-${i}" hidden>
         ${checklist.map(d => `<p><strong>${esc(d.documento)}</strong><br>${esc(d.para_que_sirve)}<br>
           <em>Dónde: ${esc(d.donde_conseguirlo)}</em></p>`).join('')}
         <p class="official">Lista redactada automáticamente a partir de las bases oficiales.
@@ -205,20 +209,30 @@ function render() {
       <div class="org">${esc(g.granting_body || '')} ${badge}</div>
       <h4><a href="${esc(grantPath(g))}">${esc(g.plain_title || g.title)}</a></h4>
       <p class="desc">${esc(g.ai_summary || '')}</p>
+      ${who ? `<p class="desc"><strong>Quién puede pedirla:</strong> ${esc(who)}</p>` : ''}
       <div>
         <span class="chip"><span class="k">Importe</span><span class="v">${esc(amount)}</span></span>
         ${g.region ? `<span class="chip"><span class="k">Ámbito</span><span class="v">${esc(g.region)}</span></span>` : ''}
       </div>
       <div style="margin:.3rem 0 .8rem">${g.leader ? '<span class="tag leader">LEADER · desarrollo rural</span>' : ''}</div>
+      <div class="spacer"></div>
       ${explainer}
       ${papeles}
-      <div class="spacer"></div>
-      ${source ? `<a class="btn block" target="_blank" rel="noopener" href="${esc(source)}">Ver el texto original de la convocatoria →</a>` : ''}
+      ${source ? `<a class="btn block" target="_blank" rel="noopener" href="${esc(source)}">Texto original de la convocatoria →</a>` : ''}
       ${extras ? `<p class="official links">${extras}</p>` : ''}
       ${official}
     </article>`;
   }).join('');
 }
+
+// The two panel buttons of a card. Delegated so it survives every re-render.
+document.getElementById('grid').addEventListener('click', (ev) => {
+  const btn = ev.target.closest('.panel-btn');
+  if (!btn) return;
+  const panel = document.getElementById(btn.getAttribute('aria-controls'));
+  panel.hidden = !panel.hidden;
+  btn.setAttribute('aria-expanded', String(!panel.hidden));
+});
 
 document.getElementById('filters').addEventListener('click', (ev) => {
   const b = ev.target.closest('button');
