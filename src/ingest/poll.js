@@ -16,6 +16,7 @@ import { db, uuid } from '../db.js';
 import { bdnsGet, ddmmyyyy, alert } from './bdns.js';
 import { prepareEnrichment, enrichBatch, endDateFromDetail, saysClosed, LEADER_TEXT, isMislabelledLeaderCall } from './enrich.js';
 import { isGrantLive } from '../grantSeo.js';
+import { todayInSpain } from '../seoUtils.js';
 
 const LOOKBACK_DAYS = Number(process.env.POLL_LOOKBACK_DAYS || 7);
 const PAGE_SIZE = 200;
@@ -56,18 +57,23 @@ export const isPilotScope = (row) => PILOT_RE.test(`${row.nivel2 || ''} ${row.ni
 // LEADER_TEXT / isMislabelledLeaderCall live in enrich.js (shared with the deadline rule).
 export { LEADER_TEXT, isMislabelledLeaderCall };
 
-export function screen(detail, today = new Date().toISOString().slice(0, 10)) {
+// The first check for every grant, pilot territory included: nobody can apply to a closed
+// call, so never download its bases or pay to summarise it. A known end date wins over
+// BDNS's `abierto` flag, which goes stale (see parseEndDate).
+export function closedReason(detail, today = todayInSpain()) {
+  const fin = endDateFromDetail(detail);
+  if (fin && fin < today) return `plazo cerrado (${fin})`;
+  if (!fin && saysClosed(detail)) return 'plazo cerrado (según BDNS)';
+  return null;
+}
+
+export function screen(detail, today = todayInSpain()) {
+  const closed = closedReason(detail, today);
+  if (closed) return closed;
   const tipo = detail.tipoConvocatoria || '';
   if (!/concurrencia competitiva/i.test(tipo) && !isMislabelledLeaderCall(detail)) {
     return `no competitiva (${tipo || 'tipo desconocido'})`;
   }
-  // Nobody can apply to a closed call, so never pay to extract one. Barely matters on the
-  // daily poll; on a long backfill it is the difference between enriching everything BDNS
-  // published in a year and enriching only what is still live.
-  // A known end date wins over BDNS's `abierto` flag, which goes stale (see parseEndDate).
-  const fin = endDateFromDetail(detail);
-  if (fin && fin < today) return `plazo cerrado (${fin})`;
-  if (!fin && saysClosed(detail)) return 'plazo cerrado (según BDNS)';
   return null;
 }
 
@@ -175,7 +181,8 @@ export async function ingestRows(seen) {
       db.prepare('UPDATE grant_row SET beneficiarios_bdns = ? WHERE id = ?')
         .run(JSON.stringify((detail.tiposBeneficiarios || []).map(t => t.descripcion).filter(Boolean)), g.id);
       const pilot = isPilotScope(g.row);
-      const reason = pilot ? null : screen(detail);
+      // Pilot rows skip the competitive-call screen, never the date.
+      const reason = pilot ? closedReason(detail) : screen(detail);
       if (reason) {
         skipped++;
         db.prepare('UPDATE grant_row SET skip_reason = ? WHERE id = ?').run(reason, g.id);

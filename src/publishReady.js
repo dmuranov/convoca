@@ -8,9 +8,10 @@
 // summarised but never reached the site. The site is only worth anything if it has all of them.
 import { db } from './db.js';
 import { pingIndexNow } from './indexnow.js';
-import { BASE_URL, grantPath, licitacionPath } from './seoUtils.js';
+import { BASE_URL, grantPath, licitacionPath, todayInSpain } from './seoUtils.js';
 
-const today = () => new Date().toISOString().slice(0, 10);
+// The same "today" as the site and the polls (Spain, not UTC).
+const today = () => todayInSpain();
 const ping = (urls) => { if (urls.length) Promise.resolve(pingIndexNow(urls)).catch(() => {}); };
 
 export function publishReadyGrants() {
