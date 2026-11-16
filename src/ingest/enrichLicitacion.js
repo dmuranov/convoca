@@ -17,6 +17,7 @@ import { createRequire } from 'node:module';
 import { db, uuid } from '../db.js';
 import { alert } from './bdns.js';
 import { anthropic, MODEL } from '../llm.js';
+import { todayInSpain } from '../seoUtils.js';
 
 const require = createRequire(import.meta.url);
 const pdfParse = require('pdf-parse');
@@ -269,15 +270,20 @@ export function contextFromRow(row) {
   });
 }
 
-// -- Deterministic phase: upserts every column except the AI-owned ones. `lic` is a
-// parsed feed entry from placsp.js. Fetches and stores the pliegos PDF text here so it is
-// durable before the batch call - same reasoning as prepareEnrichment in enrich.js.
-export async function prepareEnrichment(lic) {
-  const rawText = lic.pliegos.length ? await fetchPliegosText(lic.pliegos, lic.expediente) : null;
+// Takes bids today: in estado 'licitacion' and the deadline (if any) today or later in Spain.
+// The first thing checked for every tender: only these are downloaded and summarised, because
+// only these are ever shown (src/routes/seoLicitaciones.js, tenderStillOpenSql). Anything
+// else - past its deadline, awarded, resolved, cancelled - is stored with its feed fields
+// and never sent to the AI.
+export const takesBids = (lic, today = todayInSpain()) => lic.estado === 'licitacion'
+  && (!lic.fechaLimite || String(lic.fechaLimite).slice(0, 10) >= today);
 
+// Writes every column except the AI-owned ones. rawText === undefined keeps the stored
+// pliego text (a feed update that is not summarised again must not wipe it).
+function upsertFeedFields(lic, rawText) {
   const existing = db.prepare('SELECT id FROM licitacion_row WHERE expediente = ?').get(lic.expediente);
   const id = existing?.id || uuid();
-
+  const keepText = rawText === undefined;
   db.prepare(`INSERT INTO licitacion_row
       (id, expediente, source_url, updated_at, estado, organo, tipo_contrato, procedimiento,
        cpv, valor_estimado, presupuesto_base, iva, fecha_limite, lugar, ccaa, duracion,
@@ -291,12 +297,26 @@ export async function prepareEnrichment(lic) {
       presupuesto_base = excluded.presupuesto_base, iva = excluded.iva,
       fecha_limite = excluded.fecha_limite, lugar = excluded.lugar, ccaa = excluded.ccaa,
       duracion = excluded.duracion, num_lotes = excluded.num_lotes,
-      pliegos = excluded.pliegos, raw_text = excluded.raw_text`)
+      pliegos = excluded.pliegos${keepText ? '' : ', raw_text = excluded.raw_text'}`)
     .run(id, lic.expediente, lic.sourceUrl, lic.updated, lic.estado, lic.organo,
       lic.tipoContrato, lic.procedimiento, JSON.stringify(lic.cpv), lic.valorEstimado,
       lic.presupuestoBase, lic.iva, lic.fechaLimite, lic.lugar, lic.ccaa, lic.duracion,
-      lic.numLotes, JSON.stringify(lic.pliegos), rawText);
+      lic.numLotes, JSON.stringify(lic.pliegos), keepText ? null : rawText);
+  return id;
+}
 
+// No AI, no pliego download: a tender that does not take bids, or one already summarised
+// whose feed entry changed (new estado, new date). Its summary, if any, is kept.
+export function storeFeedFields(lic) {
+  return upsertFeedFields(lic, undefined);
+}
+
+// -- Deterministic phase before the AI call, for a tender that takes bids and has no summary
+// yet. `lic` is a parsed feed entry from placsp.js. Fetches and stores the pliegos PDF text
+// here so it is durable before the batch call - same reasoning as prepareEnrichment in enrich.js.
+export async function prepareEnrichment(lic) {
+  const rawText = lic.pliegos.length ? await fetchPliegosText(lic.pliegos, lic.expediente) : null;
+  const id = upsertFeedFields(lic, rawText);
   console.log(`prepared ${lic.expediente}: estado=${lic.estado}, pliegos=${lic.pliegos.length}, rawText=${rawText ? rawText.length + 'ch' : 'none'}`);
   return { id, expediente: lic.expediente, context: extractContext({ ...lic, rawText }) };
 }

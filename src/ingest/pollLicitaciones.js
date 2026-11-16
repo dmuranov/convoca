@@ -18,9 +18,9 @@ import 'dotenv/config';
 import { db } from '../db.js';
 import { alert } from './bdns.js';
 import { walkFeed } from './placsp.js';
-import { prepareEnrichment, contextFromRow, enrichBatch } from './enrichLicitacion.js';
+import { prepareEnrichment, storeFeedFields, takesBids, contextFromRow, enrichBatch } from './enrichLicitacion.js';
 import { pingIndexNow } from '../indexnow.js';
-import { BASE_URL, licitacionPath } from '../seoUtils.js';
+import { BASE_URL, licitacionPath, tenderStillOpenSql } from '../seoUtils.js';
 import { publishOpenTenders } from '../publishReady.js';
 
 function pingPublishedAmong(prepared) {
@@ -48,11 +48,15 @@ const MAX_PAGES = Number(process.env.PLACSP_MAX_PAGES || 15);
 // drift (a poll interrupted mid-run, a batch that timed out) rather than a whole unreviewed
 // backlog - raised well past daily new-row volume (~150-180/day) so they never bind in
 // practice, not left at the original review-pacing values.
-const OPEN_TENDER_ESTADOS = ['licitacion', 'anuncio_previo', 'pendiente_adjudicacion'];
 const OPEN_TENDER_DRAIN_CAP = Number(process.env.OPEN_TENDER_DRAIN_CAP || 1000);
 // Tenders per Batch API submission (see flush() in runPoll for why it is chunked).
 const ENRICH_CHUNK = Number(process.env.PLACSP_ENRICH_CHUNK || 200);
-const HISTORICAL_DRAIN_CAP = Number(process.env.LICITACION_BACKLOG_CAP || 1000);
+// COST RULE (2026-11-16): the AI summary - the whole cost of this poll, ~35-40k tokens of
+// pliego text per tender - is paid only for a tender that takes bids (takesBids,
+// enrichLicitacion.js), once. Before, every feed entry was summarised whatever its estado,
+// and again on every estado change (licitacion -> pendiente -> adjudicada -> resuelta), and
+// a daily drain summarised 1,000 finished tenders more: ~7,500 summaries on 2026-11-14,
+// three quarters of them for tenders the site never shows.
 // See poll.js for the reasoning: enriched===0 alone misses "40 of 50 failed", and a flat
 // batchFailed>0 would fire on the occasional single benign failure every normal day.
 const BATCH_FAILURE_ALERT_RATIO = Number(process.env.POLL_BATCH_FAILURE_RATIO || 0.3);
@@ -84,9 +88,11 @@ async function runPoll() {
     db.prepare('SELECT expediente, updated_at, titulo FROM licitacion_row').all()
       .map(r => [r.expediente, r])
   );
+  // A tender that does not take bids is never summarised, so for it "current" is only the
+  // updated_at match - otherwise it would look changed on every run.
   const isCurrent = (e) => {
     const row = known.get(e.expediente);
-    return !!row && row.updated_at === e.updated && row.titulo !== null;
+    return !!row && row.updated_at === e.updated && (row.titulo !== null || !takesBids(e));
   };
 
   const entries = await walkFeed(
@@ -99,6 +105,7 @@ async function runPoll() {
   // 2026-10-06, killing the poll before anything was sent - no summaries, nothing published.
   let toEnrich = [];
   let unchanged = 0, prepFailed = 0, enriched = 0, batchFailed = 0, sent = 0;
+  let notBiddable = 0, keptSummary = 0;
   const flush = async () => {
     if (!toEnrich.length) return;
     const r = await enrichBatch(toEnrich);
@@ -115,6 +122,12 @@ async function runPoll() {
     seenExp.add(e.expediente);
     if (isCurrent(e)) { unchanged++; continue; }
     try {
+      // First the date and estado: past its deadline or not taking bids -> stored, never
+      // summarised, no pliego download.
+      if (!takesBids(e)) { storeFeedFields(e); notBiddable++; continue; }
+      // Takes bids but already summarised: the feed entry changed (a date, a field) - update
+      // it and keep the summary instead of paying for the same pliegos again.
+      if (known.get(e.expediente)?.titulo != null) { storeFeedFields(e); keptSummary++; continue; }
       toEnrich.push(await prepareEnrichment(e));
     } catch (err) {
       prepFailed++;
@@ -124,7 +137,8 @@ async function runPoll() {
   }
   await flush();
 
-  console.log(`placsp poll done: ${enriched} enriched, ${unchanged} unchanged, `
+  console.log(`placsp poll done: ${enriched} enriched, ${keptSummary} updated (summary kept), `
+    + `${notBiddable} not taking bids (stored, not summarised), ${unchanged} unchanged, `
     + `${prepFailed + batchFailed} failed (of ${entries.length} entries seen)`);
   // See poll.js: ratio, not enriched===0 - a batch where 40 of 50 fail is exactly the
   // failure this exists to catch, and enriched===0 alone would miss it.
@@ -156,18 +170,20 @@ export async function pollLicitacionesOnce() {
   finally { running = false; }
 }
 
-// negate=false: estado IN (...OPEN_TENDER_ESTADOS) - the open/recent tier.
-// negate=true: estado NOT IN (...OPEN_TENDER_ESTADOS) - everything else (historical).
-async function drainTier(label, negate, limit) {
-  const placeholders = OPEN_TENDER_ESTADOS.map(() => '?').join(',');
+// Re-enriches rows the poll already wrote deterministic fields for but never got an AI
+// result (a poll interrupted mid-run, a batch that timed out) - walkFeed may not even revisit
+// them, see isCurrent above. Reads raw_text/pliegos straight from the row, no PLACSP/pliego
+// re-fetch. Only tenders that take bids today (the cost rule above), soonest deadline
+// first. There used to be a second, "historical" tier summarising 1,000 finished tenders a
+// day that the site never shows: removed.
+export async function drainStrandedLicitaciones() {
   const rows = db.prepare(
     `SELECT * FROM licitacion_row WHERE titulo IS NULL
-     AND estado ${negate ? 'NOT IN' : 'IN'} (${placeholders})
-     -- Open tier: what can still be bid on comes first, soonest deadline first (oldest-created
-     -- first left the week's new, biddable tenders waiting behind August's).
-     ORDER BY ${negate ? 'created_at ASC' : "(fecha_limite IS NOT NULL AND fecha_limite < date('now')), fecha_limite IS NULL, fecha_limite ASC, created_at ASC"} LIMIT ?`
-  ).all(...OPEN_TENDER_ESTADOS, limit);
-  if (!rows.length) return 0;
+     AND estado = 'licitacion' AND ${tenderStillOpenSql()}
+     ORDER BY fecha_limite IS NULL, fecha_limite ASC, created_at ASC LIMIT ?`
+  ).all(OPEN_TENDER_DRAIN_CAP);
+  const label = 'taking bids';
+  if (!rows.length) return { enriched: 0 };
   let enriched = 0, failed = 0;
   for (let i = 0; i < rows.length; i += ENRICH_CHUNK) {
     const prepared = rows.slice(i, i + ENRICH_CHUNK)
@@ -182,17 +198,7 @@ async function drainTier(label, negate, limit) {
     alert('poll_batch_failed', `${label} backlog: ${failed} of ${rows.length} `
       + `licitación(es) submitted for enrichment failed - check Anthropic API status/credentials`);
   }
-  return enriched;
-}
-
-// Re-enriches rows the poll already wrote deterministic fields for but never got an AI
-// job enqueued (walkFeed may not even revisit them - see isCurrent above). Reads
-// raw_text/pliegos straight from the row, no PLACSP/pliego re-fetch. Two separate tiers,
-// two separate caps - see OPEN_TENDER_DRAIN_CAP/HISTORICAL_DRAIN_CAP above for why.
-export async function drainStrandedLicitaciones() {
-  const openEnriched = await drainTier('open/recent', false, OPEN_TENDER_DRAIN_CAP);
-  const historicalEnriched = await drainTier('historical', true, HISTORICAL_DRAIN_CAP);
-  return { enriched: openEnriched + historicalEnriched };
+  return { enriched };
 }
 
 if (process.argv[1] && import.meta.url.endsWith(process.argv[1].replace(/\\/g, '/').split('/').pop())) {

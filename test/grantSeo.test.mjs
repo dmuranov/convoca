@@ -149,3 +149,15 @@ test('hub intro names the regional government in full, without the bracket', () 
   const text = hubIntro({ kind: 'ccaa', ccaaName: 'Cataluña', grants, alerts: false });
   assert.match(text, /hoy son Generalitat de Catalunya \(3\) y Diputación de Barcelona \(2\)\./, text);
 });
+
+test('a tender is downloaded and summarised only while it takes bids', async () => {
+  const { takesBids } = await import('../src/ingest/enrichLicitacion.js');
+  const today = '2026-11-16';
+  assert.ok(takesBids({ estado: 'licitacion', fechaLimite: '2026-11-16T14:00:00' }, today), 'deadline today');
+  assert.ok(takesBids({ estado: 'licitacion', fechaLimite: '2026-12-01' }, today));
+  assert.ok(takesBids({ estado: 'licitacion', fechaLimite: null }, today), 'no deadline given');
+  assert.ok(!takesBids({ estado: 'licitacion', fechaLimite: '2026-11-15' }, today), 'deadline passed');
+  for (const estado of ['pendiente_adjudicacion', 'adjudicada', 'resuelta', 'anulada', 'anuncio_previo']) {
+    assert.ok(!takesBids({ estado, fechaLimite: '2026-12-01' }, today), estado);
+  }
+});

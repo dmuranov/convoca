@@ -15,6 +15,7 @@ import 'dotenv/config';
 import { db, uuid } from '../db.js';
 import { bdnsGet, ddmmyyyy, alert } from './bdns.js';
 import { prepareEnrichment, enrichBatch, endDateFromDetail, saysClosed, LEADER_TEXT, isMislabelledLeaderCall } from './enrich.js';
+import { isGrantLive } from '../grantSeo.js';
 
 const LOOKBACK_DAYS = Number(process.env.POLL_LOOKBACK_DAYS || 7);
 const PAGE_SIZE = 200;
@@ -179,7 +180,18 @@ export async function ingestRows(seen) {
         skipped++;
         db.prepare('UPDATE grant_row SET skip_reason = ? WHERE id = ?').run(reason, g.id);
       } else {
-        toEnrich.push(await prepareEnrichment(g.id, g.ref, { detail }));
+        const prepared = await prepareEnrichment(g.id, g.ref, { detail });
+        // screen() checks the end date BDNS states. When there is none, prepareEnrichment works
+        // it out from the bases PDF - and that date can already be past. Same rule: a call
+        // nobody can apply to any more is not sent to the AI.
+        const now = db.prepare('SELECT status, deadline_date, is_rolling FROM grant_row WHERE id = ?').get(g.id);
+        if (!isGrantLive(now)) {
+          skipped++;
+          db.prepare('UPDATE grant_row SET skip_reason = ? WHERE id = ?')
+            .run(`plazo cerrado (${now.deadline_date || 'según BDNS'}, fecha calculada)`, g.id);
+        } else {
+          toEnrich.push(prepared);
+        }
         // Note: enriched rows still land unpublished. Nothing reaches the public
         // directory without an operator publishing it (see routes/operator.js).
       }
