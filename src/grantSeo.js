@@ -7,6 +7,7 @@
 // nobody could apply to. So: say it is a subsidy and who gives it, and keep out of the index what
 // cannot help a searcher.
 import { APPLICANT_LABELS } from './applicants.js';
+import { todayInSpain } from './seoUtils.js';
 
 const eur = (n) => `${Number(n).toLocaleString('es-ES')} €`;
 
@@ -20,14 +21,16 @@ export function isEnriched(g) {
   } catch { return false; }
 }
 
-// A call keeps its page after it closes, however long ago: these grants come back every year
-// with similar rules, and people look up last year's call to prepare the next one. The page
-// says it is closed and offers open grants nearby. Only a direct award (closed, no deadline:
-// there was never anything to apply to) has no page: the route answers 410 Gone and it is in
-// no list and no sitemap.
-export const isGrantLive = (g) => g.status !== 'CLOSED' || !!g.deadline_date;
+// A grant is on the site only while someone can still apply: not closed, and no deadline, a
+// rolling call, or the deadline today or later (in Spain) - the same rule as every list
+// (grantStillOpenSql, src/seoUtils.js). From the day after the deadline its page answers
+// 410 Gone, so search engines drop it, and it is in no list and no sitemap. The row stays in
+// the database: deleting it would make the daily poll take the call for a new one and enrich
+// it again.
+export const isGrantLive = (g, today = todayInSpain()) => g.status !== 'CLOSED'
+  && (!g.deadline_date || !!g.is_rolling || String(g.deadline_date).slice(0, 10) >= today);
 // Indexed and in the sitemap: shown, and with our explanation.
-export const isGrantIndexable = (g) => isGrantLive(g) && isEnriched(g);
+export const isGrantIndexable = (g, today) => isGrantLive(g, today) && isEnriched(g);
 
 // BDNS writes 0.01 where a call has no money (honorary prizes): never a real amount.
 export const realAmount = (n) => (Number(n) > 0.01 ? Number(n) : null);

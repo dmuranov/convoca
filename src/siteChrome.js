@@ -128,7 +128,7 @@ export function siteHeader(active = 'subvenciones') {
 </header>`;
 }
 
-export function pageShell({ title, description, canonical, jsonLd, breadcrumbHtml, bodyHtml, robots }) {
+export function pageShell({ title, description, canonical, jsonLd, breadcrumbHtml, bodyHtml, robots, active = 'subvenciones' }) {
   return `<!doctype html>
 <html lang="es">
 <head>
@@ -144,7 +144,7 @@ ${ALERT_ASSETS}
 ${jsonLd ? `<script type="application/ld+json">${JSON.stringify(jsonLd)}</script>` : ''}
 </head>
 <body>
-${siteHeader()}
+${siteHeader(active)}
 <main class="wrap" style="padding-top:1.5rem;padding-bottom:3rem">
   <nav class="muted" style="font-size:.82rem;margin-bottom:.6rem">${breadcrumbHtml}</nav>
   ${bodyHtml}

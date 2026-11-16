@@ -34,25 +34,21 @@ sitemapRouter.get('/sitemap_index.xml', (req, res) => {
 });
 
 // Every indexable published grant (isGrantIndexable, src/grantSeo.js - the same test the page
-// uses, so the sitemap never lists a noindex or a 410 page): open and closed calls with our
-// plain-language explanation. Direct awards, grants without the explanation and unpublished
-// grants are not here.
+// uses, so the sitemap never lists a noindex or a 410 page): calls still open today, with our
+// plain-language explanation. Expired calls, direct awards, grants without the explanation
+// and unpublished grants are not here.
 // Prioritised per §6 - "small crawl budget on a new domain, prioritise what closes
-// soon" - open-and-closing-soonest first, then closed ones, most recently closed first and at
-// low priority, since they're least urgent if they don't get a fresh crawl immediately.
+// soon" - closing soonest first.
 sitemapRouter.get('/sitemap-grants.xml', (req, res) => {
   const rows = db.prepare(`
-    SELECT bdns_ref, plain_title, title, status, deadline_date, created_at, closed_at, plain_explainer
-    FROM grant_row WHERE published = 1 AND plain_explainer IS NOT NULL
-    ORDER BY status = 'CLOSED', deadline_date IS NULL, CASE WHEN status = 'CLOSED' THEN closed_at END DESC, deadline_date
+    SELECT bdns_ref, plain_title, title, status, deadline_date, is_rolling, created_at, plain_explainer
+    FROM grant_row WHERE published = 1 AND status != 'CLOSED' AND plain_explainer IS NOT NULL
+    ORDER BY deadline_date IS NULL, deadline_date
     LIMIT ?`).all(MAX_PER_SITEMAP);
 
-  const entries = rows.filter(g => isGrantIndexable(g)).map(g => {
-    const priority = g.status === 'CLOSED' ? 0.3 : 0.7;
-    // A closed page changed when it closed (banner, open grants linked): say so.
-    const lastmod = (g.status === 'CLOSED' && g.closed_at ? g.closed_at : g.created_at || '').slice(0, 10) || null;
-    return urlTag(grantPath(g), lastmod, priority);
-  });
+  const today = todayInSpain();
+  const entries = rows.filter(g => isGrantIndexable(g, today))
+    .map(g => urlTag(grantPath(g), (g.created_at || '').slice(0, 10) || null, 0.7));
   res.set('Content-Type', 'application/xml; charset=utf-8').send(urlset(entries));
 });
 

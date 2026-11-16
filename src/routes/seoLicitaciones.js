@@ -4,8 +4,8 @@
 // same as grants got their fichas before their hubs.
 import { Router } from 'express';
 import { db } from '../db.js';
-import { BASE_URL, esc, eur, licitacionPath, daysLeft, daysLabel, alertBox, ALERT_ASSETS } from '../seoUtils.js';
-import { siteHeader, siteFooter } from '../siteChrome.js';
+import { BASE_URL, esc, eur, licitacionPath, daysLeft, daysLabel, alertBox, ALERT_ASSETS, todayInSpain } from '../seoUtils.js';
+import { siteHeader, siteFooter, pageShell } from '../siteChrome.js';
 import { ESTADO_LABEL } from '../ingest/enrichLicitacion.js';
 
 export const seoLicitacionesRouter = Router();
@@ -41,16 +41,6 @@ function renderPage(l) {
   let requisitos = []; try { requisitos = JSON.parse(l.requisitos_clave || '[]'); } catch { requisitos = []; }
   let pliegos = []; try { pliegos = JSON.parse(l.pliegos || '[]'); } catch { pliegos = []; }
   let camposAusentes = []; try { camposAusentes = JSON.parse(l.campos_ausentes || '[]'); } catch { camposAusentes = []; }
-
-  // Non-active states stay indexable (same §5 reasoning as grants' "Plazo cerrado" banner)
-  // rather than disappearing - a resuelta/adjudicada licitación is still a real record of
-  // who won what, useful to someone researching a contracting body's history.
-  const statusBanner = l.estado !== 'licitacion' ? `
-    <div class="closed-banner">
-      <strong>${esc(ESTADO_LABEL[l.estado] || l.estado)}.</strong>
-      ${l.estado === 'anuncio_previo' ? 'Todavía no se puede presentar oferta.' : 'Ya no se aceptan ofertas para esta licitación.'}
-      Se mantiene publicada como registro de la convocatoria.
-    </div>` : '';
 
   const explainerBlock = (l.quien_puede_interesarle || tareas.length) ? `
     <div class="card">
@@ -100,7 +90,6 @@ ${siteHeader('licitaciones')}
     <a href="/">Inicio</a> › <a href="/licitaciones">Licitaciones</a> › <span>${esc(head)}</span>
   </nav>
 
-  ${statusBanner}
 
   <p class="org muted">${esc(l.organo || '')}</p>
   <h1>${esc(head)} <span class="muted" style="font-size:.55em;font-weight:400">— Expediente ${esc(l.expediente)}</span></h1>
@@ -140,6 +129,21 @@ seoLicitacionesRouter.get('/licitaciones/:slugId', (req, res, next) => {
   if (!m) return next();
   const l = db.prepare('SELECT * FROM licitacion_row WHERE id = ? AND published = 1').get(m[1]);
   if (!l) return next();
+  // Same rule as grants: only tenders that still take bids are on the site. Past the deadline,
+  // awarded, resolved or cancelled: 410 Gone, so search engines drop the address. The row stays
+  // in the database (the poll would otherwise fetch and enrich it again).
+  const today = todayInSpain();
+  if (l.estado !== 'licitacion' || (l.fecha_limite && String(l.fecha_limite).slice(0, 10) < today)) {
+    return res.status(410).set('Content-Type', 'text/html; charset=utf-8').send(pageShell({
+      title: 'Licitación terminada | Plazo Abierto',
+      description: 'El plazo para presentar ofertas a esta licitación ha terminado. Consulta las licitaciones abiertas.',
+      canonical: BASE_URL + '/licitaciones', robots: 'noindex, follow', active: 'licitaciones',
+      breadcrumbHtml: '<a href="/">Inicio</a> › <a href="/licitaciones">Licitaciones</a>',
+      bodyHtml: `<h1>El plazo de esta licitación ha terminado</h1>
+        <p>Solo mostramos licitaciones que todavía admiten ofertas.</p>
+        <p><a class="btn" href="/licitaciones">Ver las licitaciones abiertas</a></p>`,
+    }));
+  }
   res.set('Content-Type', 'text/html; charset=utf-8');
   res.send(renderPage(l));
 });

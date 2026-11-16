@@ -26,7 +26,20 @@ function deadlineLabel(g) {
   return label.charAt(0).toUpperCase() + label.slice(1) + est;
 }
 
-function renderPage(g, related = []) {
+// Open grants offered on the 410 page of an expired call: same town first, then province,
+// subject, comunidad (relatedOpenGrants, src/seoQueries.js).
+const relatedOpenList = (related) => related.length ? `
+  <div class="card related-open">
+    <h2>Convocatorias abiertas parecidas</h2>
+    <ul>${related.map(r => {
+      const d = daysLeft(r.deadline_date);
+      const when = d != null ? daysLabel(d) : r.is_rolling ? 'plazo continuo' : 'plazo por confirmar';
+      return `<li><a href="${esc(grantPath(r))}">${esc(r.plain_title || r.title)}</a>
+        <span class="muted">— ${esc([r.municipality || r.province || r.region, when].filter(Boolean).join(' · '))}</span></li>`;
+    }).join('')}</ul>
+  </div>` : '';
+
+function renderPage(g) {
   const path = grantPath(g);
   const canonical = BASE_URL + path;
   const head = g.plain_title || g.title;
@@ -44,27 +57,6 @@ function renderPage(g, related = []) {
   try { explainer = g.plain_explainer ? JSON.parse(g.plain_explainer) : null; } catch { explainer = null; }
   let checklist = null;
   try { checklist = g.plain_checklist ? JSON.parse(g.plain_checklist) : null; } catch { checklist = null; }
-
-  // A closed call keeps its page (isGrantLive, src/grantSeo.js): the banner says it is closed
-  // and the list under it offers open grants nearby. Direct awards never get here - the
-  // route answers 410.
-  const closedBanner = g.status === 'CLOSED' ? `
-    <div class="closed-banner">
-      <strong>Convocatoria cerrada — Consulta las condiciones y prepárate para la próxima edición.</strong>
-      El plazo terminó el ${esc(g.deadline_date)} y ya no acepta solicitudes. Estas ayudas suelen
-      repetirse cada año con requisitos parecidos.
-    </div>` : '';
-
-  const relatedOpenBlock = g.status === 'CLOSED' && related.length ? `
-    <div class="card related-open">
-      <h2>Convocatorias abiertas parecidas</h2>
-      <ul>${related.map(r => {
-        const d = daysLeft(r.deadline_date);
-        const when = d != null ? daysLabel(d) : r.is_rolling ? 'plazo continuo' : 'plazo por confirmar';
-        return `<li><a href="${esc(grantPath(r))}">${esc(r.plain_title || r.title)}</a>
-          <span class="muted">— ${esc([r.municipality || r.province || r.region, when].filter(Boolean).join(' · '))}</span></li>`;
-      }).join('')}</ul>
-    </div>` : '';
 
   const explainerBlock = explainer ? `
     <div class="card" id="explicacion">
@@ -165,8 +157,6 @@ ${siteHeader()}
     <a href="/">Inicio</a>${estatal ? ` › <a href="${ESTATALES_PATH}">Subvenciones estatales</a>` : ''}${ccaaSlug ? ` › <a href="/subvenciones/${ccaaSlug}/">${esc(g.region)}</a>` : ''}${categorySlug ? ` › <a href="/subvenciones/${categorySlug}/">${esc(g.category)}</a>` : ''} › <span>${esc(head)}</span>
   </nav>
 
-  ${closedBanner}
-
   <h1>${esc(head)}</h1>
 
   <!-- Our plain-language guide first; the official BDNS record after it. -->
@@ -179,7 +169,6 @@ ${siteHeader()}
   ${explainerBlock}
   ${explainer ? '' : `<div class="card"><p><strong>Quién puede pedirla</strong><br>${esc(quienPuede)}</p></div>`}
   ${checklistBlock}
-  ${relatedOpenBlock}
 
   <div class="card">
     <h2>Datos oficiales de la convocatoria</h2>
@@ -213,20 +202,22 @@ seoRouter.get('/subvenciones/:slugId', (req, res, next) => {
     FROM grant_row gr LEFT JOIN grant_eligibility e ON e.grant_id = gr.id
     WHERE gr.bdns_ref = ? AND gr.published = 1`).get(m[2]);
   if (!g) return next();
-  // Direct awards are not shown: 410 Gone, so search engines drop the address, with the way
-  // to the open grants for whoever followed an old link.
+  // Expired calls (and direct awards) are not on the site (isGrantLive, src/grantSeo.js):
+  // 410 Gone, so search engines drop the address, with open grants like it for whoever
+  // followed an old link.
   if (!isGrantLive(g)) {
     return res.status(410).set('Content-Type', 'text/html; charset=utf-8').send(pageShell({
-      title: 'Convocatoria no disponible | Plazo Abierto',
-      description: 'Esta convocatoria ya no está disponible. Consulta las subvenciones con el plazo abierto.',
+      title: 'Convocatoria terminada | Plazo Abierto',
+      description: 'El plazo de esta convocatoria ha terminado. Consulta las subvenciones con el plazo abierto.',
       canonical: BASE_URL + '/', robots: 'noindex, follow',
       breadcrumbHtml: '<a href="/">Inicio</a>',
-      bodyHtml: `<h1>Esta convocatoria ya no está disponible</h1>
-        <p>Solo mostramos convocatorias que se pueden pedir. Mira las que tienen el plazo abierto:</p>
-        <p><a class="btn" href="/">Ver subvenciones abiertas</a></p>
+      bodyHtml: `<h1>El plazo de esta convocatoria ha terminado</h1>
+        <p>Solo mostramos convocatorias que todavía se pueden pedir. Mira las que tienen el plazo abierto:</p>
+        ${relatedOpenList(relatedOpenGrants(g))}
+        <p><a class="btn" href="/">Ver todas las subvenciones abiertas</a></p>
         ${hubNav()}`,
     }));
   }
   res.set('Content-Type', 'text/html; charset=utf-8');
-  res.send(renderPage(g, g.status === 'CLOSED' ? relatedOpenGrants(g) : []));
+  res.send(renderPage(g));
 });
