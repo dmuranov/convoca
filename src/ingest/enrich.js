@@ -10,7 +10,7 @@ import { bdnsGet, alert } from './bdns.js';
 import { computeDeadline } from './dates.js';
 import { territoryFromRegiones } from './regions.js';
 import { municipioFromBody } from '../municipios.js';
-import { anthropic, MODEL } from '../llm.js';
+import { anthropic, MODEL, usageMeter } from '../llm.js';
 import { suggestMatches } from './match.js';
 import { APPLICANT_TYPES, APPLICANT_DESCRIPTION } from '../applicants.js';
 
@@ -421,9 +421,11 @@ export async function enrichBatch(prepared) {
 
   const byId = new Map(prepared.map(p => [p.grantId, p]));
   let enriched = 0, failed = 0;
+  const meter = usageMeter();
   for await (const r of await anthropic.messages.batches.results(batch.id)) {
     const p = byId.get(r.custom_id);
     if (!p) continue;
+    meter.add(r.result.message?.usage);
     if (r.result.type !== 'succeeded') {
       failed++;
       alert('extract', `convocatoria ${p.bdnsRef}: batch ${r.result.type} ${r.result.error?.type || ''}`);
@@ -438,5 +440,6 @@ export async function enrichBatch(prepared) {
       alert('extract', `convocatoria ${p.bdnsRef}: unparseable extract (${e.message})`);
     }
   }
-  return { enriched, failed };
+  console.log(meter.line(`[cost] grant batch ${batch.id}`));
+  return { enriched, failed, usd: meter.usd };
 }

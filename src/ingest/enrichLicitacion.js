@@ -16,8 +16,10 @@
 import { createRequire } from 'node:module';
 import { db, uuid } from '../db.js';
 import { alert } from './bdns.js';
-import { anthropic, MODEL } from '../llm.js';
+import { anthropic, MODEL, usageMeter } from '../llm.js';
 import { todayInSpain } from '../seoUtils.js';
+import { keySections } from './keySections.js';
+import { complejidadFor } from './complexity.js';
 
 const require = createRequire(import.meta.url);
 const pdfParse = require('pdf-parse');
@@ -89,17 +91,19 @@ CASOS LÍMITE
 - Es una modificación de un expediente ya visto: resume el estado actual tal cual llega,
   sin comparar con ninguna versión anterior ni mencionar que ha cambiado.
 
-COMPLEJIDAD
+CLASIFICACIÓN EMPRESARIAL
 
-La única valoración que emites, anclada al procedimiento y las condiciones tal como
-llegan en la entrada, no a intuición:
-- "baja": Contrato menor, o procedimiento simplificado sin más condiciones señaladas.
-- "media": Abierto simplificado, o un procedimiento con solvencia técnica/económica
-  exigida pero sin clasificación empresarial ni varios lotes.
-- "alta": clasificación empresarial exigida, varios lotes, un procedimiento con
-  negociación o diálogo competitivo, o una duración superior a un año.
-Si la entrada no da para situarlo con estos criterios, usa "media" y dilo en
-complejidad_motivo.
+clasificacion_exigida es true solo si los pliegos exigen la clasificación empresarial como
+obligatoria (p.ej. "Grupo C, subgrupo 2, categoría 5" sin alternativa). Si la clasificación
+es una de las formas posibles de acreditar la solvencia ("clasificación o, en su defecto,
+solvencia..."), o no se exige, o no lo puedes ver en el texto, es false.
+
+TEXTO DE LOS PLIEGOS
+
+Recibes extractos de los pliegos, no el documento entero: el principio de cada documento y
+los pasajes sobre solvencia, garantías, seguros, certificados, medios exigidos y criterios.
+"[…]" marca un salto. Que algo no aparezca no significa que el pliego no lo pida: no
+afirmes que algo no se exige.
 
 campos_ausentes es control de calidad: si un mismo campo aparece ausente en muchos
 registros, el problema está en el análisis del feed, no en ti.`;
@@ -125,22 +129,18 @@ export function extractContext(lic) {
     `Duración: ${lic.duracion || 'no consta'}`,
     `Número de lotes: ${lic.numLotes}`,
     `Objeto: ${lic.titulo || 'no consta'}`,
-    // Was sliced to 60000 chars - found 2026-09-07 that 94% of published rows have
-    // raw_text longer than that (140/220 hit the full 150000-char storage cap), so the
-    // model was writing requisitos_clave/complejidad_motivo off maybe the first 15-20
-    // pages of PCAP/PPT documents that can run 150-200+ pages, with no signal to anyone
-    // that the rest was never read - campos_ausentes only flags what's missing from what
-    // it saw, not what exists past the cutoff. Haiku 4.5's 200K-token context has room for
-    // the full MAX_RAW_TEXT (~35-40K tokens for Spanish text) many times over; there was
-    // no technical reason for the two limits to differ.
-    lic.rawText ? `\n--- TEXTO DE LOS PLIEGOS (extracto) ---\n${lic.rawText.slice(0, MAX_RAW_TEXT)}` : '',
+    // The key sections, not the whole text (keySections.js): the whole 150,000 chars cost
+    // ~48,000 tokens a tender. A plain cut at the first N chars (the pre-2026-09-07 way) is
+    // worse: it reads the first pages of the PCAP and misses the PPT, where some
+    // requirements are.
+    lic.rawText ? `\n--- TEXTO DE LOS PLIEGOS (extractos) ---\n${keySections(lic.rawText)}` : '',
   ].filter(Boolean).join('\n');
 }
 
 export const LICITACION_SCHEMA = {
   type: 'object',
   additionalProperties: false,
-  required: ['titulo', 'resumen', 'quien_puede_interesarle', 'que_hay_que_hacer', 'requisitos_clave', 'complejidad', 'complejidad_motivo', 'campos_ausentes'],
+  required: ['titulo', 'resumen', 'quien_puede_interesarle', 'que_hay_que_hacer', 'requisitos_clave', 'clasificacion_exigida', 'campos_ausentes'],
   properties: {
     titulo: { type: ['string', 'null'], description: 'Máx. 70 caracteres, lo que se contrata en lenguaje normal. Ejemplo: "Vigilar a los niños en el comedor de varios colegios". Null si el objeto no da para un título fiable.' },
     resumen: { type: ['string', 'null'], description: '2-3 frases: qué hay que hacer, para quién y dónde. Tiempo verbal según el estado (ver reglas). Null si el objeto viene vacío o es solo un código.' },
@@ -151,8 +151,8 @@ export const LICITACION_SCHEMA = {
     // 0-4 bounds live in the description text instead.
     que_hay_que_hacer: { type: 'array', items: { type: 'string' }, description: '3 a 5 tareas concretas extraídas del objeto y los pliegos. Vacío si no hay base para extraerlas.' },
     requisitos_clave: { type: 'array', items: { type: 'string' }, description: '0 a 4 requisitos en llano, solo si son específicos de esta licitación. "Estar dado de alta como empresa" no es un requisito clave; es ruido - mejor vacío que relleno.' },
-    complejidad: { type: 'string', enum: ['baja', 'media', 'alta'] },
-    complejidad_motivo: { type: 'string', description: 'Una frase justificando la etiqueta anterior con los criterios dados (procedimiento, lotes, duración).' },
+    // The complexity label itself is computed in code (complexity.js) from this and feed fields.
+    clasificacion_exigida: { type: 'boolean', description: 'true solo si los pliegos exigen clasificación empresarial obligatoria, sin alternativa de solvencia. Ver reglas.' },
     campos_ausentes: { type: 'array', items: { type: 'string' }, description: 'Nombres de los campos que faltaban en la entrada o los pliegos (p.ej. "objeto", "pliegos", "requisitos").' },
   },
 };
@@ -322,15 +322,19 @@ export async function prepareEnrichment(lic) {
 }
 
 export function applyAiResult(expediente, ai) {
+  const row = db.prepare('SELECT procedimiento, num_lotes, duracion FROM licitacion_row WHERE expediente = ?').get(expediente) || {};
+  const { complejidad, motivo } = complejidadFor({
+    procedimiento: row.procedimiento, numLotes: row.num_lotes, duracion: row.duracion,
+    clasificacionExigida: ai.clasificacion_exigida === true,
+  });
   db.prepare(`UPDATE licitacion_row SET
       titulo = ?, resumen = ?, quien_puede_interesarle = ?, que_hay_que_hacer = ?,
       requisitos_clave = ?, complejidad = ?, complejidad_motivo = ?, campos_ausentes = ?
     WHERE expediente = ?`)
     .run(ai.titulo || null, ai.resumen || null, ai.quien_puede_interesarle || null,
       JSON.stringify(ai.que_hay_que_hacer || []), JSON.stringify(ai.requisitos_clave || []),
-      ai.complejidad || null, ai.complejidad_motivo || null,
-      JSON.stringify(ai.campos_ausentes || []), expediente);
-  console.log(`enriched ${expediente}: complejidad=${ai.complejidad || '—'}`);
+      complejidad, motivo, JSON.stringify(ai.campos_ausentes || []), expediente);
+  console.log(`enriched ${expediente}: complejidad=${complejidad}`);
 }
 
 // Single-licitación path, for manual/backfill use outside the nightly batch.
@@ -401,9 +405,11 @@ export async function enrichBatch(prepared) {
   }
 
   let enriched = 0, failed = 0;
+  const meter = usageMeter();
   for await (const r of await anthropic.messages.batches.results(batch.id)) {
     const expediente = byId.get(r.custom_id);
     if (!expediente) continue;
+    meter.add(r.result.message?.usage);
     if (r.result.type !== 'succeeded') {
       failed++;
       alert('extract', `expediente ${expediente}: batch ${r.result.type} ${r.result.error?.type || ''}`);
@@ -418,5 +424,6 @@ export async function enrichBatch(prepared) {
       alert('extract', `expediente ${expediente}: unparseable extract (${e.message})`);
     }
   }
-  return { enriched, failed };
+  console.log(meter.line(`[cost] licitacion batch ${batch.id}`));
+  return { enriched, failed, usd: meter.usd };
 }
