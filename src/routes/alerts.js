@@ -11,7 +11,7 @@ import express from 'express';
 import crypto from 'node:crypto';
 import { db, uuid } from '../db.js';
 import { BASE_URL, esc } from '../seoUtils.js';
-import { pageShell } from '../siteChrome.js';
+import { pageShell, analyticsEnabled } from '../siteChrome.js';
 import { SECTIONS, cleanFilters, canonicalFilters, describeSubscription } from '../alerts/filters.js';
 import { confirmationEmail } from '../alerts/emails.js';
 import { getMailer } from '../alerts/mailer.js';
@@ -187,6 +187,8 @@ alertsRouter.get('/privacidad', (req, res) => {
   <p>Las preguntas al asistente se envían a Anthropic para generar la respuesta. No guardamos el texto de las preguntas.</p>
   <h3>Dirección IP y cookies</h3>
   <p>Usamos tu dirección IP solo para frenar abusos (límites de envíos por hora o por día) y la borramos a los dos días. Si usas el formulario de contacto, se guarda con tu mensaje y se borra con él. No usamos cookies de publicidad ni de analítica. Solo hay una cookie técnica si entras con usuario y contraseña.</p>
+  ${analyticsEnabled() ? `<h3>Estadísticas de visitas</h3>
+  <p>Para saber cuántas personas visitan la web y qué páginas leen usamos Cloudflare Web Analytics (Cloudflare, Inc.). No usa cookies ni guarda tu dirección IP: solo cuenta visitas de forma agregada (página, país, tipo de dispositivo y desde qué web llegas).</p>` : ''}
   <h3>Tus derechos</h3>
   <p>Puedes pedir acceso, rectificación, supresión, oposición, limitación o portabilidad de tus datos escribiendo a ${contact ? `<a href="mailto:${esc(contact)}">${esc(contact)}</a>` : 'nuestro contacto'}. Si crees que no los tratamos bien, puedes reclamar ante la Agencia Española de Protección de Datos (<a href="https://www.aepd.es" target="_blank" rel="noopener">aepd.es</a>).</p>
 </div>`,

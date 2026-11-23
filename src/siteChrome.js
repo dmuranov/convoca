@@ -99,8 +99,17 @@ export function footerLinks() {
   </nav>`;
 }
 
+// Cloudflare Web Analytics: no cookies and no personal data stored, so no consent banner.
+// Only rendered when CF_BEACON_TOKEN is set, so local and test runs send nothing.
+export const analyticsEnabled = () => /^[a-f0-9]{32}$/i.test(process.env.CF_BEACON_TOKEN || '');
+export function analyticsTag() {
+  if (!analyticsEnabled()) return '';
+  return `<script defer src="https://static.cloudflareinsights.com/beacon.min.js" data-cf-beacon='{"token": "${process.env.CF_BEACON_TOKEN}"}'></script>`;
+}
+
 export function siteFooter() {
-  return `<footer class="site">
+  return `${analyticsTag()}
+<footer class="site">
   <div class="wrap">
     ${footerLinks()}
     <p>Los datos proceden de la <a href="https://www.infosubvenciones.es">Base de Datos Nacional de Subvenciones</a>

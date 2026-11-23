@@ -14,7 +14,7 @@ import { seoLicitacionesRouter } from './src/routes/seoLicitaciones.js';
 import { sitemapRouter } from './src/routes/sitemap.js';
 import { pingIndexNow } from './src/indexnow.js';
 import { grantPath, BASE_URL } from './src/seoUtils.js';
-import { footerLinks } from './src/siteChrome.js';
+import { footerLinks, analyticsTag } from './src/siteChrome.js';
 import { readFileSync } from 'node:fs';
 import { login, logout, loginThrottled, redeemInvite, sessionUser,
          setSessionCookie, clearSessionCookie, seedOperator } from './src/auth.js';
@@ -135,7 +135,9 @@ const web = (f) => path.join(__dirname, 'web', f);
 const pageCache = new Map();
 const publicPage = (f) => (req, res) => {
   if (!pageCache.has(f) || process.env.NODE_ENV !== 'production') pageCache.set(f, readFileSync(web(f), 'utf8'));
-  res.type('html').send(pageCache.get(f).replace('<!--footer-links-->', () => footerLinks()));
+  res.type('html').send(pageCache.get(f)
+    .replace('<!--footer-links-->', () => footerLinks())
+    .replace('</body>', () => `${analyticsTag()}\n</body>`));
 };
 app.get('/', publicPage('index.html'));
 app.get('/entrar', (req, res) => res.sendFile(web('login.html')));
