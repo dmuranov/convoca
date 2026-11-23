@@ -104,7 +104,7 @@ export function footerLinks() {
 export const analyticsEnabled = () => /^[a-f0-9]{32}$/i.test(process.env.CF_BEACON_TOKEN || '');
 export function analyticsTag() {
   if (!analyticsEnabled()) return '';
-  return `<script defer src="https://static.cloudflareinsights.com/beacon.min.js" data-cf-beacon='{"token": "${process.env.CF_BEACON_TOKEN}"}'></script>`;
+  return `<script type="module" src="https://static.cloudflareinsights.com/beacon.min.js" data-cf-beacon='{"token": "${process.env.CF_BEACON_TOKEN}"}'></script>`;
 }
 
 export function siteFooter() {
