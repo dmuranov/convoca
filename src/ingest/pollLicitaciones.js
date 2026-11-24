@@ -85,14 +85,16 @@ async function runPoll() {
   // "changed" here, or it's stranded forever: PLACSP won't bump updated_at just because we
   // failed to finish with it, so nothing would ever revisit it otherwise.
   const known = new Map(
-    db.prepare('SELECT expediente, updated_at, titulo FROM licitacion_row').all()
+    db.prepare('SELECT expediente, updated_at, titulo, campos_ausentes FROM licitacion_row').all()
       .map(r => [r.expediente, r])
   );
   // A tender that does not take bids is never summarised, so for it "current" is only the
-  // updated_at match - otherwise it would look changed on every run.
+  // updated_at match - otherwise it would look changed on every run. "Has an AI answer" is
+  // campos_ausentes, not titulo: titulo is null on purpose when the object is too vague.
+  const answered = (row) => row.titulo !== null || row.campos_ausentes !== null;
   const isCurrent = (e) => {
     const row = known.get(e.expediente);
-    return !!row && row.updated_at === e.updated && (row.titulo !== null || !takesBids(e));
+    return !!row && row.updated_at === e.updated && (answered(row) || !takesBids(e));
   };
 
   const entries = await walkFeed(
@@ -176,9 +178,14 @@ export async function pollLicitacionesOnce() {
 // re-fetch. Only tenders that take bids today (the cost rule above), soonest deadline
 // first. There used to be a second, "historical" tier summarising 1,000 finished tenders a
 // day that the site never shows: removed.
+//
+// campos_ausentes IS NULL = never had an AI answer. A tender with no pliegos and a vague
+// object gets an answer with titulo null on purpose (the prompt forbids inventing one);
+// matching on titulo alone re-sent ~300 of those every day (2026-11-24). If its pliegos
+// appear later, the feed bumps updated_at and the poll summarises it again.
 export async function drainStrandedLicitaciones() {
   const rows = db.prepare(
-    `SELECT * FROM licitacion_row WHERE titulo IS NULL
+    `SELECT * FROM licitacion_row WHERE titulo IS NULL AND campos_ausentes IS NULL
      AND estado = 'licitacion' AND ${tenderStillOpenSql()}
      ORDER BY fecha_limite IS NULL, fecha_limite ASC, created_at ASC LIMIT ?`
   ).all(OPEN_TENDER_DRAIN_CAP);
