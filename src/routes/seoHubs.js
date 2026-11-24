@@ -46,7 +46,7 @@ function renderHub({ path, title, summary, breadcrumbHtml, hub, alert = {}, intr
     </section>`).join('');
   const body = `
     <h1>${esc(title)}</h1>
-    <p class="hub-intro">${esc(hubIntro({ ...intro, grants: hub.own, alerts: alertsEnabled() }))}</p>
+    <p class="hub-intro">${esc(hubIntro({ ...intro, grants: hub.own, total: hub.all.length, alerts: alertsEnabled() }))}</p>
     ${hubNav({ ...intro, estatales: intro.kind === 'estatales' })}
     ${hub.also.length ? `<h2>${esc(ownTitle)} (${hub.own.length})</h2>` : ''}
     <div class="grants-grid">${hub.own.map(grantListItem).join('')}</div>
@@ -57,6 +57,7 @@ function renderHub({ path, title, summary, breadcrumbHtml, hub, alert = {}, intr
     title: `${title} | Plazo Abierto`,
     description: summary,
     canonical, jsonLd, breadcrumbHtml, bodyHtml: body,
+    robots: hub.indexable ? undefined : 'noindex, follow',
   });
 }
 

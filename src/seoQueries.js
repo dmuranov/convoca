@@ -9,6 +9,7 @@ import { grantStillOpenSql, todayInSpain } from './seoUtils.js';
 // A hub with fewer live results than this is a doorway page, not a hub - 404 instead of
 // serving (or indexing) a near-empty page. Applies to every tier per plan §10 step 4.
 export const MIN_LIVE = Number(process.env.SEO_HUB_MIN_LIVE || 3);
+export const MIN_INDEX = Number(process.env.SEO_HUB_MIN_INDEX || 5);
 
 // Open and with the deadline not yet passed (grantStillOpenSql, src/seoUtils.js). A function:
 // the date in it changes at midnight.
@@ -73,12 +74,17 @@ export const grantsByBeneficiarioCcaa = (enumVal, ccaaName) =>
 
 // A hub exists when there are MIN_LIVE calls to show and at least one is its own: with none
 // of its own it would be a copy of the hub above it.
+//
+// `indexable`: offered to search engines (index + sitemap) only with MIN_INDEX calls of its
+// own. Thinner hubs still open for visitors, as noindex. Why (2026-11-24): Google had crawled
+// ~1,000 pages and indexed 223, rejecting even full hubs; a 1-own + 2-estatales page is
+// mostly a copy of the estatales hub and pulls down how Google rates the whole site.
 const hub = (own, also) => {
   const tiers = also.filter(t => t.grants.length);
   const all = [...own, ...tiers.flatMap(t => t.grants)];
-  return { own, also: tiers, all, ok: own.length >= 1 && all.length >= MIN_LIVE };
+  return { own, also: tiers, all, ok: own.length >= 1 && all.length >= MIN_LIVE, indexable: own.length >= MIN_INDEX };
 };
-const simple = (own) => ({ own, also: [], all: own, ok: own.length >= MIN_LIVE });
+const simple = (own) => ({ own, also: [], all: own, ok: own.length >= MIN_LIVE, indexable: own.length >= MIN_INDEX });
 const ESTATALES = { key: 'estatales', title: 'Estatales: también puedes pedirlas' };
 
 export const ccaaHub = (ccaaName) => hub(grantsByCcaa(ccaaName), [{ ...ESTATALES, grants: grantsNationwide() }]);

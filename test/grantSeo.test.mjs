@@ -117,8 +117,8 @@ test('hub intro: 120 to 180 words, for every kind of hub and any amount of data'
     { kind: 'beneficiario', beneficiarioLabel: 'Clubes deportivos' },
     { kind: 'beneficiario', beneficiarioLabel: 'Juntas vecinales', ccaaName: 'Castilla y León' },
   ];
-  for (const k of kinds) for (const grants of [rich, sparse, one]) for (const alerts of [true, false]) {
-    const text = hubIntro({ ...k, grants, alerts });
+  for (const k of kinds) for (const grants of [rich, sparse, one]) for (const alerts of [true, false]) for (const total of [undefined, grants.length + 4]) {
+    const text = hubIntro({ ...k, grants, total, alerts });
     const w = wordCount(text);
     assert.ok(w >= 120 && w <= 180, `${JSON.stringify(k)} (${grants.length} grants, alerts ${alerts}): ${w} words\n${text}`);
     assert.ok(!/undefined|null|NaN|0,01/.test(text), text);
@@ -128,6 +128,14 @@ test('hub intro: 120 to 180 words, for every kind of hub and any amount of data'
   assert.match(cat, /Generalitat de Catalunya \(Gencat\)/);
   assert.match(cat, /Diputación de Barcelona/);
   assert.notEqual(cat, hubIntro({ kind: 'ccaa', ccaaName: 'Galicia', grants: rich, alerts: true }));
+});
+
+test('hub intro gives the same total as the title when wider tiers are listed below', () => {
+  const grants = Array.from({ length: 15 }, () => ({ granting_body: 'ILLES BALEARS — CONSELLERIA' }));
+  const text = hubIntro({ kind: 'beneficiario', beneficiarioLabel: 'Ayuntamientos', ccaaName: 'Illes Balears', grants, total: 19 });
+  assert.match(text, /Hay ahora mismo 15 convocatorias/);
+  assert.match(text, /Con las 4 que también se pueden pedir desde aquí, son 19 en total\./);
+  assert.doesNotMatch(hubIntro({ kind: 'estatales', grants, total: 15 }), /en total/);
 });
 
 test('days left counts calendar days in Spain: 0 on the deadline day, 1 the day before', () => {

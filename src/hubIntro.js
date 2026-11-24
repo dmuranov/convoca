@@ -41,7 +41,9 @@ const top = (values, n = 3) => {
 };
 
 // kind: 'ccaa' | 'province' | 'category' | 'estatales' | 'beneficiario'
-export function hubIntro({ kind, grants, ccaaName, provinceName, categoryName, beneficiarioLabel, alerts = false }) {
+// `total` is everything listed on the page (own + the wider tiers below); the title counts it,
+// so the text says it too - a page titled "19" opening with "hay 15" reads as an error.
+export function hubIntro({ kind, grants, total, ccaaName, provinceName, categoryName, beneficiarioLabel, alerts = false }) {
   const n = grants.length;
   const N = `${n} convocatoria${n === 1 ? '' : 's'} de subvenciones`;
   const place = provinceName ? `la provincia de ${provinceName}` : ccaaName;
@@ -94,7 +96,10 @@ export function hubIntro({ kind, grants, ccaaName, provinceName, categoryName, b
     : `Acota la lista con los enlaces ${narrow} y vuelve cuando quieras: la lista se actualiza cada mañana con las novedades de la BDNS.`;
 
   // Keep within 120-180 words: the breakdown is the first to go, the reminder the first to come.
-  let parts = [lead, who, money, dates, breakdown, scope, fichas, how].filter(Boolean);
+  const sum = total > n
+    ? `Con ${total - n === 1 ? 'la que' : `las ${total - n} que`} también se ${total - n === 1 ? 'puede' : 'pueden'} pedir desde aquí, son ${total} en total.`
+    : '';
+  let parts = [lead, sum, who, money, dates, breakdown, scope, fichas, how].filter(Boolean);
   if (wordCount(parts.join(' ')) > 180) parts = parts.filter(p => p !== breakdown);
   if (wordCount(parts.join(' ')) > 180) parts = parts.filter(p => p !== who);
   if (wordCount(parts.join(' ')) < 120) {

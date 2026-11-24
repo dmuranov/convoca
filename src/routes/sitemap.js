@@ -75,7 +75,7 @@ sitemapRouter.get('/sitemap-licitaciones.xml', (req, res) => {
 sitemapRouter.get('/sitemap-hubs.xml', (req, res) => {
   const entries = [];
   const add = (path, hub, priority) => {
-    if (!hub.ok) return;
+    if (!hub.ok || !hub.indexable) return;
     const lastmod = hub.all.reduce((m, g) => (g.created_at > m ? g.created_at : m), '').slice(0, 10) || null;
     entries.push(urlTag(path, lastmod, priority));
   };
