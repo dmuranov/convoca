@@ -95,11 +95,33 @@ export function grantGiver(body) {
   name = name.replace(/^((?:Ayuntamiento|Diputación(?: Provincial)?|Cabildo(?: Insular)?|Consell(?: Insular)?|Comarca) de) (la|las|el|los)\b/,
     (_, a, art) => `${a} ${cap(art)}`);
   if (name.length > 55) name = name.slice(0, 54).replace(/\s+\S*$/, '') + '…';
-  const w = name.split(/\s/)[0].toLowerCase();
-  const de = ['ayuntamiento', 'consell', 'cabildo', 'consorcio', 'instituto', 'servicio', 'fondo', 'ente', 'distrito', 'área', 'area', 'patronato', 'organismo', 'gobierno', 'departamento', 'grupo', 'centro', 'colegio', 'museo', 'consejo'].includes(w) ? 'del'
-    : ['diputación', 'universidad', 'universitat', 'comarca', 'mancomunidad', 'junta', 'generalitat', 'fundación', 'asociación', 'agrupación', 'entidad', 'sociedad', 'agencia', 'cámara', 'confederación', 'federación'].includes(w) ? 'de la'
+  return { name, de: articleFor(name) };
+}
+
+// "del Ayuntamiento", "de la Diputación", "de Cáritas": the article before a body's name.
+export function articleFor(name) {
+  const w = String(name || '').split(/\s/)[0].toLowerCase();
+  return ['ayuntamiento', 'consell', 'cabildo', 'consorcio', 'instituto', 'servicio', 'fondo', 'ente', 'distrito', 'área', 'area', 'patronato', 'organismo', 'gobierno', 'departamento', 'departament', 'grupo', 'centro', 'colegio', 'museo', 'consejo', 'ministerio'].includes(w) ? 'del'
+    : ['diputación', 'universidad', 'universitat', 'comarca', 'mancomunidad', 'junta', 'generalitat', 'fundación', 'asociación', 'agrupación', 'entidad', 'sociedad', 'agencia', 'cámara', 'confederación', 'federación',
+       'consejería', 'conselleria', 'consellería', 'dirección', 'secretaría', 'presidencia', 'vicepresidencia', 'viceconsejería', 'oficina', 'empresa', 'corporación', 'autoridad', 'delegación'].includes(w) ? 'de la'
     : 'de';
-  return { name, de };
+}
+
+// The body an organism page (src/routes/organismos.js) is about. Same as grantGiver, except a
+// comunidad's department keeps its own name ("Consejería de Cultura y Deporte", place
+// "Andalucía") instead of becoming the comunidad: a page per consejería, not one per region,
+// which the region hub already is.
+export function organismName(body) {
+  const raw = String(body || '').replace(/\s*\([^)]*\)\s*/g, ' ').replace(/\s+/g, ' ').trim();
+  if (!raw) return null;
+  const [first, second] = raw.split(/\s+—\s+/);
+  if (second && REGIONAL_DEPT.test(second)) {
+    let name = titleCase(second.replace(/,?\s*S\.?A\.?$/i, '').trim());
+    if (name.length > 70) name = name.slice(0, 69).replace(/\s+\S*$/, '') + '…';
+    return { name, de: articleFor(name), place: unInvert(titleCase(first)) };
+  }
+  const g = grantGiver(body);
+  return g && { ...g, place: null };
 }
 
 // The programme's own name, when people would search for it. "AYUDAS A LA EMANCIPACIÓN JOVEN

@@ -12,6 +12,7 @@ import { alertBox, ALERT_ASSETS } from '../seoUtils.js';
 import { isBusinessGrant } from '../negocios.js';
 import { grantSeoTitle, grantSeoDescription, isGrantIndexable, isGrantLive, whoCanApplyShort, amountLabel, realAmount } from '../grantSeo.js';
 import { relatedOpenGrants } from '../seoQueries.js';
+import { organismFor } from '../organismos.js';
 import { siteHeader, siteFooter, liveHubs, pageShell, hubNav, ESTATALES_PATH } from '../siteChrome.js';
 
 export const seoRouter = Router();
@@ -94,7 +95,9 @@ function renderPage(g) {
     .map(t => TYPES[t] ? { label: TYPES[t], slug: slugify(TYPES[t]) } : null)
     .filter(Boolean);
 
+  const org = organismFor({ granting_body: g.granting_body });
   const relatedLinks = [
+    org ? `<a href="${esc(org.path)}">Todas las convocatorias ${esc(`${org.de} ${org.name}`)}</a>` : '',
     estatal ? `<a href="${ESTATALES_PATH}">Más subvenciones estatales</a>` : '',
     ccaaSlug ? `<a href="/subvenciones/${ccaaSlug}/">Más subvenciones en ${esc(g.region)}</a>` : '',
     provinceSlug ? `<a href="/subvenciones/${ccaaSlug}/${provinceSlug}/">Más subvenciones en ${esc(g.province)}</a>` : '',

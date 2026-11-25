@@ -12,6 +12,7 @@ import { seoRouter } from './src/routes/seo.js';
 import { seoHubsRouter } from './src/routes/seoHubs.js';
 import { seoLicitacionesRouter } from './src/routes/seoLicitaciones.js';
 import { sitemapRouter } from './src/routes/sitemap.js';
+import { organismosRouter } from './src/routes/organismos.js';
 import { pingIndexNow } from './src/indexnow.js';
 import { grantPath, BASE_URL } from './src/seoUtils.js';
 import { footerLinks, analyticsTag } from './src/siteChrome.js';
@@ -102,6 +103,7 @@ app.use(seoRouter);
 app.use(seoHubsRouter);
 app.use(seoLicitacionesRouter);
 app.use(sitemapRouter);
+app.use(organismosRouter);
 
 // robots.txt (plan §0/§6) - low-SEO-value paths disallowed to conserve a new domain's
 // small crawl budget; everything under /subvenciones/ and /ayudas/ (the pages worth

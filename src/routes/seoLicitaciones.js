@@ -7,6 +7,7 @@ import { db } from '../db.js';
 import { BASE_URL, esc, eur, licitacionPath, daysLeft, daysLabel, alertBox, ALERT_ASSETS, todayInSpain } from '../seoUtils.js';
 import { siteHeader, siteFooter, pageShell } from '../siteChrome.js';
 import { ESTADO_LABEL } from '../ingest/enrichLicitacion.js';
+import { organismFor } from '../organismos.js';
 
 export const seoLicitacionesRouter = Router();
 
@@ -91,7 +92,8 @@ ${siteHeader('licitaciones')}
   </nav>
 
 
-  <p class="org muted">${esc(l.organo || '')}</p>
+  <p class="org muted">${(() => { const o = organismFor({ organo: l.organo });
+    return o ? `<a href="${esc(o.path)}">${esc(l.organo)}</a>` : esc(l.organo || ''); })()}</p>
   <h1>${esc(head)} <span class="muted" style="font-size:.55em;font-weight:400">— Expediente ${esc(l.expediente)}</span></h1>
 
   <div class="card">

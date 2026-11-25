@@ -95,7 +95,7 @@ export function footerLinks() {
   return `<nav class="footer-links" aria-label="Secciones del sitio">
     ${group('Subvenciones por comunidad', hubs.ccaa.map(ccaaLink))}
     ${group('Subvenciones por tema', temas)}
-    ${group('Plazo Abierto', [link('/', 'Subvenciones'), link('/licitaciones', 'Licitaciones'), link('/negocios', 'Negocios'), link('/privacidad', 'Privacidad')])}
+    ${group('Plazo Abierto', [link('/', 'Subvenciones'), link('/licitaciones', 'Licitaciones'), link('/organismos/', 'Por organismo'), link('/negocios', 'Negocios'), link('/privacidad', 'Privacidad')])}
   </nav>`;
 }
 

@@ -29,6 +29,7 @@ sitemapRouter.get('/sitemap_index.xml', (req, res) => {
     `<sitemap><loc>${esc(BASE_URL)}/sitemap-hubs.xml</loc><lastmod>${now}</lastmod></sitemap>\n` +
     `<sitemap><loc>${esc(BASE_URL)}/sitemap-grants.xml</loc><lastmod>${now}</lastmod></sitemap>\n` +
     `<sitemap><loc>${esc(BASE_URL)}/sitemap-licitaciones.xml</loc><lastmod>${now}</lastmod></sitemap>\n` +
+    `<sitemap><loc>${esc(BASE_URL)}/sitemap-organismos.xml</loc><lastmod>${now}</lastmod></sitemap>\n` +
     `</sitemapindex>`;
   res.set('Content-Type', 'application/xml; charset=utf-8').send(body);
 });

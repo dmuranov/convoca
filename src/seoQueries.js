@@ -69,7 +69,9 @@ export const grantsCcaaWide = (ccaaName) => live('g.region = ? AND g.province IS
 export const grantsNationwide = () => live('g.region = ?', NATIONWIDE);
 export const grantsByCategory = (categoryName) => live('LOWER(g.category) = LOWER(?)', categoryName);
 export const grantsByBeneficiario = (enumVal) => live('e.entity_types LIKE ?', `%"${enumVal}"%`);
-export const grantsByBeneficiarioCcaa = (enumVal, ccaaName) =>
+export const grantsByBodies = (bodies) => bodies.length
+  ? live(`g.granting_body IN (${bodies.map(() => '?').join(',')})`, ...bodies) : [];
+export const grantsByBeneficiarioCcaa =(enumVal, ccaaName) =>
   live('e.entity_types LIKE ? AND g.region = ?', `%"${enumVal}"%`, ccaaName);
 
 // A hub exists when there are MIN_LIVE calls to show and at least one is its own: with none

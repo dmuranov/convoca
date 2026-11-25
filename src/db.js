@@ -38,5 +38,9 @@ const eligCols = new Set(db.prepare('PRAGMA table_info(grant_eligibility)').all(
 if (!eligCols.has('applicant_v')) db.exec('ALTER TABLE grant_eligibility ADD COLUMN applicant_v INTEGER');
 db.exec('CREATE INDEX IF NOT EXISTS idx_grant_published_at ON grant_row(published_at)');
 db.exec('CREATE INDEX IF NOT EXISTS idx_licitacion_published_at ON licitacion_row(published_at)');
+// Organism pages (src/organismos.js). Covering, so grouping ~25k tenders by organ never reads
+// the rows themselves: licitacion_row carries the pliego text and is gigabytes.
+db.exec('CREATE INDEX IF NOT EXISTS idx_licitacion_organo ON licitacion_row(organo, lugar, published, estado, fecha_limite, titulo)');
+db.exec('CREATE INDEX IF NOT EXISTS idx_grant_body ON grant_row(granting_body)');
 
 export const uuid = () => crypto.randomUUID();
